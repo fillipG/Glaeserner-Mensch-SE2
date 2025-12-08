@@ -1,3 +1,6 @@
+# Bitte folgende Befehle ausführen
+# pip install opencv-python pillow
+
 import tkinter as tk
 from tkinter import ttk
 import cv2
