@@ -1,0 +1,18 @@
+services:
+  # --- Model 1: Moondream Description ---
+  moondream:
+    build: ./moondream_ai
+    image: museum-moondream
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all # Shares the GPU across services
+              capabilities: [gpu]
+    volumes:
+      - "./faces_yolo:/data/input"
+      - "./final:/data/processed"
+    restart: always
+
+  # --- Add more models here (e.g., Face Recognition, Audio) ---
