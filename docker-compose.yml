@@ -1,5 +1,19 @@
+# ==============================================================================
+# 🏛️ MUSEUM AI PIPELINE - DOCKER COMPOSE KONFIGURATION
+# ==============================================================================
+# ANLEITUNG FÜR NEUE MODELLE:
+# 1. Erstelle einen neuen Service-Eintrag (siehe Beispiel unten).
+# 2. 'build': Pfad zu deinem Ordner mit dem Dockerfile.
+# 3. 'volumes': Verknüpfe unbedingt './faces_yolo' (Input) und './final' (Output).
+# 4. 'volumes': Verknüpfe './config.yaml', wenn dein Modell die globale Config braucht. Moondream braucht z.B. den Prompt.
+# 5. 'deploy': Nur nötig, wenn dein Modell eine NVIDIA GPU benötigt.
+# 6. 'restart': always sorgt dafür, dass der container immer startet, wenn Docker Desktop startet
+# 6. 'restart': unless-stopped sorgt dafür, dass der container nur dann beim Start von Docker Desktop startet,
+#     wenn man ihn nicht vorher manuell beendet
+# ==============================================================================
+
 services:
-  # --- Model 1: Moondream Description ---
+
   moondream:
     build: ./moondream_ai
     image: museum-moondream
@@ -8,11 +22,21 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              count: all # Shares the GPU across services
+              count: all
               capabilities: [gpu]
+    environment:
+      - ANALYSIS_PROMPT=${MOONDREAM_PROMPT}
     volumes:
       - "./faces_yolo:/data/input"
       - "./final:/data/processed"
+      - "./config.yaml:/app/config.yaml"
     restart: always
 
-  # --- Add more models here (e.g., Face Recognition, Audio) ---
+  # --- FÜGE ANDERE MODELLE HIER EIN (BEISPIEL) ---
+  # deepface:
+  #   build: ./deepface_ai
+  #   volumes:
+  #     - "./faces_yolo:/data/input"
+  #     - "./final:/data/processed"
+  #     - "./config.yaml:/app/config.yaml"
+  #   restart: unless-stopped

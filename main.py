@@ -1,61 +1,103 @@
-# --- ANLEITUNG ---
-# 1. Starte Docker Desktop
-# 2. Führe "docker-compose up -d --build" im Terminal aus
-# 3. führe main.py aus
-# 4. Kopiere Beispielbilder in "faces_yolo"
-
 import os
 import time
-
-# --- NEW CONFIGURATION ---
-# These point to folders inside your project directory
-INPUT_DIR = os.path.abspath("./faces_yolo")
-FINAL_DIR = os.path.abspath("./final")
+import yaml
 
 
-def run_test_manager():
-    print("=" * 50)
-    print("MUSEUM SYSTEM ACTIVE")
-    print(f"1. Drop images into: {INPUT_DIR}")
-    print(f"2. Descriptions will be saved in: {FINAL_DIR}")
-    print("=" * 50)
+class PipelineAggregator:
+    def __init__(self, config_data):
+        # 1. Identify which models we are waiting for from config.yaml
+        self.enabled_models = [cfg for cfg in config_data["pipeline"] if cfg.get("enabled", False)]
+        self.required_ids = [m["id"] for m in self.enabled_models]
 
-    # Ensure folders exist
-    os.makedirs(INPUT_DIR, exist_ok=True)
-    os.makedirs(FINAL_DIR, exist_ok=True)
+        # 2. Folder settings
+        self.watch_dir = os.path.abspath(self.enabled_models[0]["watch_dir"])
+        self.file_ext = ".yaml"
 
-    # To avoid printing the same file a million times, we keep track of what we've seen
-    seen_results = set()
+        # 3. Wait Room for grouping results
+        self.results_cache = {}
+
+        # 4. Initial sweep to ignore old files
+        self.seen_files = {f for f in os.listdir(self.watch_dir) if f.endswith(self.file_ext)}
+        os.makedirs(self.watch_dir, exist_ok=True)
+
+        print(f"🚀 AGGREGATOR STARTING")
+        print(f"📡 Waiting for models: {', '.join(self.required_ids).upper()}")
+        print(f"📂 Watching folder: {self.watch_dir}\n")
+
+    def check_for_updates(self):
+        try:
+            current_files = {f for f in os.listdir(self.watch_dir) if f.endswith(self.file_ext)}
+            new_files = current_files - self.seen_files
+
+            for file_name in new_files:
+                time.sleep(0.1)  # Buffer for file writing
+                self.process_incoming_file(file_name)
+                self.seen_files.add(file_name)
+        except Exception as e:
+            print(f"⚠️ Error: {e}")
+
+    def process_incoming_file(self, file_name):
+        try:
+            # Expected format: face1_moondream.yaml
+            name_no_ext = file_name.replace(self.file_ext, "")
+            if "_" not in name_no_ext: return
+
+            base_id, model_id = name_no_ext.split("_", 1)
+
+            if base_id not in self.results_cache:
+                self.results_cache[base_id] = {}
+
+            # Read result
+            file_path = os.path.join(self.watch_dir, file_name)
+            with open(file_path, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+                # Store the content
+                self.results_cache[base_id][model_id] = data.get("description") if isinstance(data, dict) else data
+
+            # --- PROGRESS UPDATE ---
+            received = list(self.results_cache[base_id].keys())
+            waiting_for = [m for m in self.required_ids if m not in received]
+
+            print(f"📥 [{base_id.upper()}] Received: {model_id.upper()}")
+
+            if waiting_for:
+                print(f"   ⏳ Still waiting for: {', '.join(waiting_for).upper()}")
+            else:
+                self.finalize_group(base_id)
+
+        except Exception as e:
+            print(f"Error processing {file_name}: {e}")
+
+    def finalize_group(self, base_id):
+        print(f"\n✅ [COMPLETE ANALYSIS] {base_id.upper()}")
+        print("=" * 60)
+
+        for m_id in self.required_ids:
+            content = self.results_cache[base_id][m_id]
+            print(f"🤖 {m_id.upper()}: {content}")
+
+        print("=" * 60 + "\n")
+        # Clear cache for this ID
+        del self.results_cache[base_id]
+
+
+def run_pipeline():
+    try:
+        with open("config.yaml", "r") as f:
+            config_data = yaml.safe_load(f)
+    except Exception as e:
+        print(f"❌ Config Error: {e}")
+        return
+
+    aggregator = PipelineAggregator(config_data)
 
     try:
         while True:
-            # Check for .txt files in the 'final' folder
-            current_files = [f for f in os.listdir(FINAL_DIR) if f.endswith(".txt")]
-
-            for file in current_files:
-                if file not in seen_results:
-                    txt_path = os.path.join(FINAL_DIR, file)
-
-                    # Wait a moment to ensure file is written
-                    time.sleep(0.2)
-
-                    try:
-                        with open(txt_path, "r", encoding="utf-8") as f:
-                            description = f.read().strip()
-
-                        print(f"\n[NEW ANALYSIS] File: {file}")
-                        print(f"Description: {description}")
-                        print("-" * 30)
-
-                        seen_results.add(file)
-                    except Exception as e:
-                        print(f"Error reading {file}: {e}")
-
-            time.sleep(1)
-
+            aggregator.check_for_updates()
+            time.sleep(0.5)
     except KeyboardInterrupt:
-        print("\nStopping Manager...")
+        print("\nShutting down...")
 
 
 if __name__ == "__main__":
-    run_test_manager()
+    run_pipeline()
