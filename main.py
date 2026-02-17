@@ -1,7 +1,42 @@
 import os
 import time
+from datetime import datetime
 import yaml
+import cv2
 
+def run_yolo():
+    os.makedirs("main_image", exist_ok=True)    # Erstellen des Ordners 
+
+    timestamp = datetime.now().strftime("%d.%m.%Y_%H-%M-%S")
+
+    camera = cv2.VideoCapture(0) # Öffnen der Kamera 
+    ret, frame = camera.read()  # Aufnehmen 
+
+    # boolean ret: True, wenn das Bild erfolgreich aufgenommen wurde
+    if ret:
+        cv2.imwrite(f"main_image/main_{timestamp}.jpg", frame)
+        print(f"Bild gespeichert: main_image/main_{timestamp}.jpg")
+    else:
+        print("Bild konnte nicht gelesen werden")
+    
+
+def stream_video():
+    camera = cv2.VideoCapture(0) # Öffnen der Kamera 
+
+    while True:
+        ret, frame = camera.read()  # Aufnehmen 
+        if not ret:
+            print("Fehler beim Lesen des Videoframes")
+            break
+
+        cv2.imshow("Live Stream", frame)  # Anzeigen des Videoframes
+
+        if cv2.waitKey(1) & 0xFF == ord('q'):  # Beenden mit 'q'
+            break
+
+    camera.release()
+    cv2.destroyAllWindows()    
+    
 
 class PipelineAggregator:
     def __init__(self, config_data):
@@ -88,7 +123,7 @@ def run_pipeline():
     except Exception as e:
         print(f"❌ Config Error: {e}")
         return
-
+    
     aggregator = PipelineAggregator(config_data)
 
     try:
@@ -100,4 +135,6 @@ def run_pipeline():
 
 
 if __name__ == "__main__":
-    run_pipeline()
+    run_yolo()
+    stream_video()
+    #run_pipeline()
