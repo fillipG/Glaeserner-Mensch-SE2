@@ -136,5 +136,5 @@ def run_pipeline():
 
 if __name__ == "__main__":
     run_yolo()
-    stream_video()
-    #run_pipeline()
+    #stream_video()
+    run_pipeline()
