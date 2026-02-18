@@ -3,14 +3,16 @@ import time
 from datetime import datetime
 import yaml
 import cv2
+from translator import TranslationService
+
 
 def run_yolo():
-    os.makedirs("main_image", exist_ok=True)    # Erstellen des Ordners 
+    os.makedirs("main_image", exist_ok=True)  # Erstellen des Ordners
 
     timestamp = datetime.now().strftime("%d.%m.%Y_%H-%M-%S")
 
-    camera = cv2.VideoCapture(0) # Öffnen der Kamera 
-    ret, frame = camera.read()  # Aufnehmen 
+    camera = cv2.VideoCapture(0)  # Öffnen der Kamera
+    ret, frame = camera.read()  # Aufnehmen
 
     # boolean ret: True, wenn das Bild erfolgreich aufgenommen wurde
     if ret:
@@ -18,13 +20,13 @@ def run_yolo():
         print(f"Bild gespeichert: main_image/main_{timestamp}.jpg")
     else:
         print("Bild konnte nicht gelesen werden")
-    
+
 
 def stream_video():
-    camera = cv2.VideoCapture(0) # Öffnen der Kamera 
+    camera = cv2.VideoCapture(0)  # Öffnen der Kamera
 
     while True:
-        ret, frame = camera.read()  # Aufnehmen 
+        ret, frame = camera.read()  # Aufnehmen
         if not ret:
             print("Fehler beim Lesen des Videoframes")
             break
@@ -35,11 +37,18 @@ def stream_video():
             break
 
     camera.release()
-    cv2.destroyAllWindows()    
-    
+    cv2.destroyAllWindows()
+
 
 class PipelineAggregator:
     def __init__(self, config_data):
+        # --- ÜBERSETZUNGS LOGIK ---
+        self.target_lang = config_data.get("language", "en")
+        if self.target_lang == "de":
+            self.translator = TranslationService(target_lang='de')
+        else:
+            self.translator = None
+
         # 1. Identify which models we are waiting for from config.yaml
         self.enabled_models = [cfg for cfg in config_data["pipeline"] if cfg.get("enabled", False)]
         self.required_ids = [m["id"] for m in self.enabled_models]
@@ -109,6 +118,11 @@ class PipelineAggregator:
 
         for m_id in self.required_ids:
             content = self.results_cache[base_id][m_id]
+
+            # --- ÜBERSETZUNG ANWENDEN ---
+            if self.translator and self.target_lang == "de":
+                content = self.translator.translate_text(content)
+
             print(f"🤖 {m_id.upper()}: {content}")
 
         print("=" * 60 + "\n")
@@ -123,7 +137,7 @@ def run_pipeline():
     except Exception as e:
         print(f"❌ Config Error: {e}")
         return
-    
+
     aggregator = PipelineAggregator(config_data)
 
     try:
@@ -136,5 +150,5 @@ def run_pipeline():
 
 if __name__ == "__main__":
     run_yolo()
-    #stream_video()
+    # stream_video()
     run_pipeline()

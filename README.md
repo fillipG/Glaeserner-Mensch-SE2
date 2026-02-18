@@ -30,10 +30,14 @@ Damit dein Modell automatisch mit dem System startet und Zugriff auf die Dateien
 ---
 # Anleitung Programm starten
 
-### 1. Befehl `docker-compose up -d --build` ausführen
+
+### 1. Docker Desktop starten
+
+---
+### 2. Befehl `docker-compose up -d --build` ausführen
 * Die Container laufen jetzt im Hintergrund und können über Docker Desktop oder den Befehl `docker-compose stop` beendet werden
 ---
-### 2. main.py starten
+### 3. main.py starten
 * Docker braucht etwas länger und zeigt nicht an, sobald es fertig ist
 * Der Ordner `./faces_yolo` wird, sobald Docker fertig ist, von moondream (und idealerweise eurem Modell) überwacht
 * Ergebnisse werden in `./final` geschrieben

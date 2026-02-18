@@ -3,6 +3,8 @@
 #    Kopiere einen bestehenden Block unter 'pipeline:'.
 # ==============================================================================
 
+language: "de"  # "de" für Deutsch, "en" für Original (Englisch)
+
 pipeline:
   - id: "moondream"
     name: "Visual Description (VLM)"
