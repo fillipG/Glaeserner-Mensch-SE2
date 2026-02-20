@@ -8,8 +8,8 @@ class PersonPhotoCapture:
     """
     Automatische Fotoaufnahme bei erkannter Person.
     - Person muss vollständig sichtbar sein
-    - Countdown vor Aufnahme wird in Konsole angezeigt
-    - Stabiler Timer, falls Person kurz aus dem Bild geht
+    - Countdown vor Aufnahme in der Konsole
+    - Kein CV2-Fenster
     """
     def __init__(self, save_dir="main_image", photo_delay=3, lost_tolerance=0.5):
         self.save_dir = save_dir
@@ -22,13 +22,12 @@ class PersonPhotoCapture:
     def capture_photo(self):
         """
         Kamera öffnen, Person erkennen, Countdown in Konsole anzeigen
-        und aufgenommenen Frame zurückgeben.
+        und aufgenommenen Frame zurückgeben. Kein Fenster.
         """
         cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)   # Kamera öffnen
         photo_taken = False                         # Flag, ob Foto aufgenommen
         start_time = None                           # Countdown-Startzeit
         last_person_seen = None
-
         last_reported = None                        # letzte Sekunde, die ausgegeben wurde
 
         while True:
@@ -88,12 +87,10 @@ class PersonPhotoCapture:
                     photo_taken = True
                     print("FOTO AUFGENOMMEN!")
                     cap.release()
-                    cv2.destroyAllWindows()
                     return frame  # Bild zurückgeben
 
-            # CPU schonen
+            # kurze Pause, um CPU zu schonen
             time.sleep(0.01)
 
         cap.release()
-        cv2.destroyAllWindows()
         return None
