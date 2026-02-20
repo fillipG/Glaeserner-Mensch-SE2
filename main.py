@@ -4,22 +4,30 @@ from datetime import datetime
 import yaml
 import cv2
 from pipelinemanager import PipelineManager
+from PersonPhotoCapture import PersonPhotoCapture
 
 
 def run_yolo():
-    os.makedirs("main_image", exist_ok=True)  # Erstellen des Ordners
 
-    timestamp = datetime.now().strftime("%d.%m.%Y_%H-%M-%S")
+    # Ordner für gespeicherte Bilder erstellen
+    os.makedirs("main_image", exist_ok=True)
 
-    camera = cv2.VideoCapture(0)  # Öffnen der Kamera
-    ret, frame = camera.read()  # Aufnehmen
+    # ==========================
+    # Foto aufnehmen mit PersonPhotoCapture
+    # ==========================
+    photo_capture = PersonPhotoCapture(save_dir="main_image", photo_delay=3)
+    captured_frame = photo_capture.capture_photo()  # Kamera-Stream + YOLO + Countdown
 
-    # boolean ret: True, wenn das Bild erfolgreich aufgenommen wurde
-    if ret:
-        cv2.imwrite(f"main_image/main_{timestamp}.jpg", frame)
-        print(f"Bild gespeichert: main_image/main_{timestamp}.jpg")
+    # ==========================
+    # Original-Code deines Kollegen: Bild speichern
+    # ==========================
+    if captured_frame is not None:  # Prüfen, ob ein Bild aufgenommen wurde
+        timestamp = datetime.now().strftime("%d.%m.%Y_%H-%M-%S")  # Zeitstempel erzeugen
+        filename = f"main_image/main_{timestamp}.jpg"
+        cv2.imwrite(filename, captured_frame)  # Bild speichern
+        print(f"Bild gespeichert: {filename}")  # Info ausgeben
     else:
-        print("Bild konnte nicht gelesen werden")
+        print("Kein Bild aufgenommen")  # Fehlerhinweis
 
 
 def stream_video():
