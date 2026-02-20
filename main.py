@@ -19,7 +19,7 @@ def run_yolo():
     captured_frame = photo_capture.capture_photo()  # Kamera-Stream + YOLO + Countdown
 
     # ==========================
-    # Original-Code deines Kollegen: Bild speichern
+    # Bild speichern
     # ==========================
     if captured_frame is not None:  # Prüfen, ob ein Bild aufgenommen wurde
         timestamp = datetime.now().strftime("%d.%m.%Y_%H-%M-%S")  # Zeitstempel erzeugen
