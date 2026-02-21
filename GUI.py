@@ -1,10 +1,12 @@
-import sys
 import os
+import sys
+import cv2
+
 from PyQt6.QtWidgets import (QApplication, QGraphicsView, QGraphicsScene,
                              QWidget, QVBoxLayout, QHBoxLayout,
-                             QLabel, QFrame, QGraphicsObject)
-from PyQt6.QtGui import QPixmap, QFont, QColor, QPainter
-from PyQt6.QtCore import Qt, pyqtSignal, QRectF, QPropertyAnimation, pyqtProperty, QEasingCurve
+                             QLabel, QFrame, QGraphicsObject, QPushButton, QSlider)
+from PyQt6.QtGui import QPixmap, QFont, QColor, QPainter, QImage
+from PyQt6.QtCore import Qt, pyqtSignal, QRectF, QPropertyAnimation, pyqtProperty, QEasingCurve, QTimer
 
 # --- DATEN-KONFIGURATION ---
 PERSONEN_DATEN = [
@@ -28,72 +30,83 @@ def create_dummy_pixmap(color, text, size=(200, 200)):
     return pixmap
 
 
+# --- ADMIN MENÜ ---
+class AdminMenu(QFrame):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(450, 550)
+        self.setStyleSheet("""
+            background-color: rgba(45, 35, 25, 245);
+            border: 3px solid #f4e4bc;
+            border-radius: 15px;
+            color: #f4e4bc;
+        """)
+        layout = QVBoxLayout(self)
+        title = QLabel("ADMIN KONFIGURATION")
+        title.setFont(QFont("Graduate", 22, QFont.Weight.Bold))
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title)
+
+        for text in ["Scan-Tiefe", "KI-Überwachung", "Datendurchsatz", "System-Stabilität"]:
+            layout.addSpacing(15)
+            layout.addWidget(QLabel(text.upper()))
+            s = QSlider(Qt.Orientation.Horizontal)
+            s.setStyleSheet("QSlider::handle:horizontal { background: #f4e4bc; width: 18px; border-radius: 9px; } "
+                            "QSlider::groove:horizontal { background: #3d2b1f; height: 10px; border-radius: 5px; }")
+            layout.addWidget(s)
+
+        layout.addStretch()
+        layout.addWidget(QLabel("DRÜCKE 'E' ZUM VERLASSEN", alignment=Qt.AlignmentFlag.AlignCenter))
+        self.hide()
+
+
+# --- ANIMIERTE BUTTONS ---
 class AnimatedGraphicsButton(QGraphicsObject):
     clicked = pyqtSignal()
 
     def __init__(self, img1_path, img2_path=None, scale=0.15, parent=None):
         super().__init__(parent)
         self.start_scale = scale
-        self.can_toggle = img2_path is not None  # Prüfen, ob ein zweites Bild existiert
-
-        # Bilder laden
+        self.can_toggle = img2_path is not None
         self.pixmap1 = QPixmap(img1_path) if os.path.exists(img1_path) else create_dummy_pixmap("gray", "BTN")
-        if self.can_toggle:
-            self.pixmap2 = QPixmap(img2_path) if os.path.exists(img2_path) else create_dummy_pixmap("blue", "TOGGLE")
-        else:
-            self.pixmap2 = self.pixmap1
-
+        self.pixmap2 = QPixmap(img2_path) if img2_path and os.path.exists(img2_path) else self.pixmap1
         self.current_pixmap = self.pixmap1
         self.is_toggled = False
-
         self.setScale(self.start_scale)
-        # Ursprung in die Mitte für korrektes Pulsieren
         self.setTransformOriginPoint(self.boundingRect().center())
-
-        # Animation Setup
         self._animation = QPropertyAnimation(self, b"scaleFactor", self)
-        self._animation.setDuration(150)  # Etwas langsamer für bessere Sichtbarkeit
+        self._animation.setDuration(150)
 
-    def boundingRect(self):
-        return QRectF(self.current_pixmap.rect())
+    def boundingRect(self): return QRectF(self.current_pixmap.rect())
 
-    def paint(self, painter, option, widget):
-        painter.drawPixmap(0, 0, self.current_pixmap)
+    def paint(self, painter, option, widget): painter.drawPixmap(0, 0, self.current_pixmap)
 
     @pyqtProperty(float)
-    def scaleFactor(self):
-        return self.scale()
+    def scaleFactor(self): return self.scale()
 
     @scaleFactor.setter
-    def scaleFactor(self, factor):
-        self.setScale(factor)
+    def scaleFactor(self, factor): self.setScale(factor)
 
     def mousePressEvent(self, event):
         self._animation.stop()
-        self._animation.setEasingCurve(QEasingCurve.Type.OutQuad)
         self._animation.setEndValue(self.start_scale * 0.85)
         self._animation.start()
         super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event):
         self._animation.stop()
-        # OutBack sorgt für ein schönes Zurückschnellen auf die Originalgröße
         self._animation.setEasingCurve(QEasingCurve.Type.OutBack)
         self._animation.setEndValue(self.start_scale)
         self._animation.start()
-
         if self.can_toggle:
-            self.toggle_image()
-
+            self.is_toggled = not self.is_toggled
+            self.current_pixmap = self.pixmap2 if self.is_toggled else self.pixmap1
+            self.update()
         self.clicked.emit()
         super().mouseReleaseEvent(event)
 
-    def toggle_image(self):
-        self.is_toggled = not self.is_toggled
-        self.current_pixmap = self.pixmap2 if self.is_toggled else self.pixmap1
-        self.update()
 
-
+# --- PERSONEN CONTAINER (DEIN ORIGINAL-DESIGN) ---
 class PersonContainer(QFrame):
     def __init__(self, daten, index):
         super().__init__()
@@ -151,31 +164,84 @@ class PersonContainer(QFrame):
         main_layout.addLayout(content_layout)
 
 
+# --- HAUPT GUI ---
 class ScalingAkteGUI(QGraphicsView):
     def __init__(self):
         super().__init__()
         self.scene = QGraphicsScene(0, 0, 1920, 1080)
         self.setScene(self.scene)
-        bg_path = "pictures/Akte_V3.png"
-        if os.path.exists(bg_path):
-            pixmap = QPixmap(bg_path)
-            self.bg_item = self.scene.addPixmap(pixmap)
-            self.bg_item.setPixmap(pixmap.scaled(1920, 1080, Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-                                                 Qt.TransformationMode.SmoothTransformation))
-        else:
-            self.scene.setBackgroundBrush(QColor("#f4e4bc"))
 
-        self.setup_ui_elements()
-        self.setup_buttons()
+        self.video_cap = None
+        self.video_item = None
+        self.is_animating = False
+        self.animation_speed = 0  # ms Verzögerung zwischen Frames
+
+        self.admin_menu = AdminMenu(self)
+        self.show_closed_folder()
 
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
-        self.setRenderHint(QPainter.RenderHint.TextAntialiasing)
         self.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setFrameShape(QFrame.Shape.NoFrame)
 
+    def show_closed_folder(self):
+        self.scene.clear()
+        self.is_animating = False
+        path = "pictures/Akte_V1_Zu.png"
+        if os.path.exists(path):
+            self.scene.addPixmap(QPixmap(path).scaled(1920, 1080, Qt.AspectRatioMode.KeepAspectRatioByExpanding))
+
+        self.btn_open = QPushButton("Mappe öffnen")
+        self.btn_open.setFixedSize(300, 80)
+        self.btn_open.setStyleSheet(
+            "QPushButton { background-color: #3d2b1f; color: #f4e4bc; border: 3px solid #f4e4bc; border-radius: 15px; font-family: 'Graduate'; font-size: 24px; font-weight: bold; } QPushButton:hover { background-color: #5a4030; }")
+        self.btn_open.clicked.connect(self.start_animation)
+        proxy = self.scene.addWidget(self.btn_open)
+        proxy.setPos(1350, 850)
+
+    def start_animation(self):
+        video_path = "pictures/Akte_Animation.mp4"
+        if not os.path.exists(video_path):
+            self.show_open_folder()
+            return
+        self.video_cap = cv2.VideoCapture(video_path)
+        self.scene.clear()
+        self.video_item = self.scene.addPixmap(QPixmap(1920, 1080))
+        self.is_animating = True
+        QTimer.singleShot(10, self.update_video_frame)
+
+    def update_video_frame(self):
+        if not self.is_animating or self.video_item is None or self.video_cap is None:
+            return
+        ret, frame = self.video_cap.read()
+        if ret:
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            h, w, ch = frame.shape
+            # .copy() verhindert den Speicher-Crash (0xC0000409)
+            q_img = QImage(frame.data, w, h, ch * w, QImage.Format.Format_RGB888).copy()
+            self.video_item.setPixmap(QPixmap.fromImage(q_img).scaled(1920, 1080))
+            QTimer.singleShot(self.animation_speed, self.update_video_frame)
+        else:
+            self.is_animating = False
+            self.video_cap.release()
+            self.video_cap = None
+            self.video_item = None
+            # Zeit zum Aufräumen lassen vor dem Wechsel
+            QTimer.singleShot(100, self.show_open_folder)
+
+    def show_open_folder(self):
+        self.scene.clear()
+        bg = "pictures/Akte_V3.png"
+        if os.path.exists(bg):
+            self.scene.addPixmap(QPixmap(bg).scaled(1920, 1080, Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                                                    Qt.TransformationMode.SmoothTransformation))
+
+        self.setup_ui_elements()
+        self.setup_buttons()
+
     def setup_ui_elements(self):
+        # Exakt deine gewünschten Positionen
         pos_list = [(230, 80), (1000, 80), (230, 560), (1000, 560)]
         for i, pos in enumerate(pos_list):
             if i < len(PERSONEN_DATEN):
@@ -184,32 +250,32 @@ class ScalingAkteGUI(QGraphicsView):
                 proxy.setPos(pos[0], pos[1])
 
     def setup_buttons(self):
-        # Skalierung der Buttons
+        # Exakt dein gewünschtes Button-Interface
         button_scale = 0.1
-        # Zentrale X-Achse für beide Buttons (rechts auf dem Papier)
         center_x = 1250
 
         # 1. Sprach-Button
-        self.btn_language = AnimatedGraphicsButton(
-            "pictures/change_language_german.png",
-            "pictures/change_language_english.png",
-            scale=button_scale
-        )
-        # X-Position berechnen: Mitte minus halbe Breite des skalierten Bildes
+        self.btn_language = AnimatedGraphicsButton("pictures/change_language_german.png",
+                                                   "pictures/change_language_english.png", scale=button_scale)
         w1 = self.btn_language.pixmap1.width() * button_scale
-        # y=40 ist nah am oberen Rand der Szene
         self.btn_language.setPos((center_x - (w1 / 2)), 0)
         self.scene.addItem(self.btn_language)
 
         # 2. Reset-Button
-        self.btn_reset = AnimatedGraphicsButton(
-            "pictures/reset_button.png",
-            scale=button_scale
-        )
+        self.btn_reset = AnimatedGraphicsButton("pictures/reset_button.png", scale=button_scale)
         w2 = self.btn_reset.pixmap1.width() * button_scale
-        # Genau unter den Sprachbutton (y=160)
-        self.btn_reset.setPos((center_x - (w2 / 2)+60), 160)
+        self.btn_reset.setPos((center_x - (w2 / 2) + 60), 160)
         self.scene.addItem(self.btn_reset)
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_E:
+            if self.admin_menu.isVisible():
+                self.admin_menu.hide()
+            else:
+                self.admin_menu.move((self.width() - 450) // 2, (self.height() - 550) // 2)
+                self.admin_menu.show()
+                self.admin_menu.raise_()
+        super().keyPressEvent(event)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
