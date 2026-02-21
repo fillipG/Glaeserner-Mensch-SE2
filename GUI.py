@@ -187,7 +187,7 @@ class ScalingAkteGUI(QGraphicsView):
         self.video_cap = None
         self.video_item = None
         self.is_animating = False
-        self.animation_speed = 25
+        self.animation_speed = 0
 
         self.admin_menu = AdminMenu(self)
         self.show_closed_folder()
