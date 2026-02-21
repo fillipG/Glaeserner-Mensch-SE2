@@ -46,7 +46,7 @@ def create_advanced_sketch(image_path, output_path):
 
 # --- ANWENDUNG ---
 # Pfade anpassen (Nutze r"PFAD" für Windows-Pfade mit Backslashes)
-input_file = r"C:/Users/Fillip Giffhorn/Downloads/ausdruck-auf-einem-womans-gesicht-schneiden-sie-schockiert-p7a8pk.jpg"
-output_file = r"C:/Users/Fillip Giffhorn/Downloads/skizze_detailreich.png"
+input_file = r"D:/Downloads/face4.jpg"
+output_file = r"D:/Downloads/face4_sketch.jpg"
 
 create_advanced_sketch(input_file, output_file)

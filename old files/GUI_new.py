@@ -9,7 +9,7 @@ import time
 import os
 
 # --- KONFIGURATION ---
-BACKGROUND_IMAGE_PATH = "pictures/folder_V1_bearbeitet-1.jpg"
+BACKGROUND_IMAGE_PATH = "../pictures/folder_V1_bearbeitet-1.jpg"
 
 REPORT_WIDTH = 689
 REPORT_HEIGHT = 843
