@@ -129,9 +129,9 @@ class PersonContainer(QFrame):
         main_layout.setContentsMargins(10, 5, 10, 5)
         main_layout.setSpacing(15)
 
-        header = QLabel(daten['titel'])
-        header.setFont(QFont("Graduate", 30, QFont.Weight.Bold))
-        main_layout.addWidget(header)
+        self.header = TypewriterLabel(daten['titel'], interval=60)
+        self.header.setFont(QFont("Graduate", 30, QFont.Weight.Bold))
+        main_layout.addWidget(self.header)
 
         content_layout = QHBoxLayout()
         left_side = QVBoxLayout()
@@ -141,13 +141,13 @@ class PersonContainer(QFrame):
         img_placeholder.setStyleSheet("background-color: #e2e2e2; border: 1px solid #aaa;")
 
         stats_font = QFont("Goudy Bookletter 1911", 16)
-        stats_text = (f"GESCHLECHT: {daten['geschlecht']}<br>AUGENFARBE: {daten['augen']}<br>"
-                      f"STIMMUNG: {daten['stimmung']}<br>ALTER: {daten['alter']}")
-        stats_label = QLabel(stats_text)
-        stats_label.setFont(stats_font)
+        stats_text = (f"GESCHLECHT: {daten['geschlecht']}\nAUGENFARBE: {daten['augen']}\n"
+                      f"STIMMUNG: {daten['stimmung']}\nALTER: {daten['alter']}")
+        self.stats_label = TypewriterLabel(stats_text, interval=25)
+        self.stats_label.setFont(stats_font)
 
         left_side.addWidget(img_placeholder)
-        left_side.addWidget(stats_label)
+        left_side.addWidget(self.stats_label)
         left_side.addStretch()
 
         line = QFrame()
@@ -155,11 +155,11 @@ class PersonContainer(QFrame):
         line.setStyleSheet("color: rgba(0, 0, 0, 40);")
 
         right_side = QVBoxLayout()
-        akte_titel = QLabel(f"Fallakte Nr: 2026/02/XY-{index + 1}")
+        akte_titel = TypewriterLabel(f"Fallakte Nr: 2026/02/XY-{index + 1}", interval=40)
         akte_titel.setFont(QFont("Goudy Bookletter 1911", 24, QFont.Weight.Bold))
-        beschreibung = QLabel("Beispieltext für die Personenbeschreibung. Die Akte enthält alle Details.")
-        beschreibung.setFont(QFont("Goudy Bookletter 1911", 18))
-        beschreibung.setWordWrap(True)
+        self.beschreibung = TypewriterLabel("Beispieltext für die Personenbeschreibung. Die Akte enthält alle Details.",
+                                            interval=20)
+        self.beschreibung.setFont(QFont("Goudy Bookletter 1911", 18))
 
         gefahr_label = QLabel(f"GEFAHRENSTUFE: {daten['gefahr']}")
         gefahr_label.setFont(QFont("Goudy Bookletter 1911", 18, QFont.Weight.Bold))
@@ -167,7 +167,7 @@ class PersonContainer(QFrame):
         if daten['gefahr'] == "EXTREM": gefahr_label.setStyleSheet("color: #a00000;")
 
         right_side.addWidget(akte_titel)
-        right_side.addWidget(beschreibung)
+        right_side.addWidget(self.beschreibung)
         right_side.addStretch()
         right_side.addWidget(gefahr_label)
 
@@ -176,6 +176,11 @@ class PersonContainer(QFrame):
         content_layout.addLayout(right_side, 65)
         main_layout.addLayout(content_layout)
 
+        self.typewriters = [self.header, self.stats_label, akte_titel, self.beschreibung]
+
+    def trigger_typing(self):
+        for tw in self.typewriters:
+            tw.start_typing()
 
 # --- HAUPT GUI ---
 class ScalingAkteGUI(QGraphicsView):
@@ -251,7 +256,11 @@ class ScalingAkteGUI(QGraphicsView):
         self.setup_ui_elements()
         self.setup_buttons()
 
+        for container in self.active_containers:
+            container.trigger_typing()
+
     def setup_ui_elements(self):
+        self.active_containers = []
         pos_list = [(230, 80), (1000, 80), (230, 560), (1000, 560)]
         for i, pos in enumerate(pos_list):
             if i < len(PERSONEN_DATEN):
@@ -263,6 +272,7 @@ class ScalingAkteGUI(QGraphicsView):
                 # So gehen Klicks an die Scene/Buttons dahinter weiter
                 proxy.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
                 proxy.setZValue(1)
+                self.active_containers.append(container)
 
     def setup_buttons(self):
         button_scale = 0.1
@@ -313,6 +323,30 @@ class ScalingAkteGUI(QGraphicsView):
         super().resizeEvent(event)
         self.fitInView(self.scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
 
+class TypewriterLabel(QLabel):
+    finished = pyqtSignal()
+
+    def __init__(self, full_text, interval=30, parent=None):
+        super().__init__("", parent)
+        self.full_text = full_text
+        self.interval = interval
+        self.current_index = 0
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._type_char)
+
+    def start_typing(self):
+        self.setText("")
+        self.current_index = 0
+        self._timer.start(self.interval)
+
+    def _type_char(self):
+        if self.current_index < len(self.full_text):
+            self.current_index += 1
+            # Using slice to handle HTML tags better if needed
+            self.setText(self.full_text[:self.current_index])
+        else:
+            self._timer.stop()
+            self.finished.emit()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
