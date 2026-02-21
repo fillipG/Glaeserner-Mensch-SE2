@@ -68,18 +68,24 @@ class AnimatedGraphicsButton(QGraphicsObject):
         super().__init__(parent)
         self.start_scale = scale
         self.can_toggle = img2_path is not None
-        self.pixmap1 = QPixmap(img1_path) if os.path.exists(img1_path) else create_dummy_pixmap("gray", "BTN")
+
+        self.pixmap1 = QPixmap(img1_path) if os.path.exists(img1_path) else create_dummy_pixmap("gray", "BTN 1")
         self.pixmap2 = QPixmap(img2_path) if img2_path and os.path.exists(img2_path) else self.pixmap1
+
         self.current_pixmap = self.pixmap1
         self.is_toggled = False
+
         self.setScale(self.start_scale)
         self.setTransformOriginPoint(self.boundingRect().center())
+
         self._animation = QPropertyAnimation(self, b"scaleFactor", self)
         self._animation.setDuration(150)
 
-    def boundingRect(self): return QRectF(self.current_pixmap.rect())
+    def boundingRect(self):
+        return QRectF(self.current_pixmap.rect())
 
-    def paint(self, painter, option, widget): painter.drawPixmap(0, 0, self.current_pixmap)
+    def paint(self, painter, option, widget):
+        painter.drawPixmap(0, 0, self.current_pixmap)
 
     @pyqtProperty(float)
     def scaleFactor(self): return self.scale()
@@ -88,29 +94,36 @@ class AnimatedGraphicsButton(QGraphicsObject):
     def scaleFactor(self, factor): self.setScale(factor)
 
     def mousePressEvent(self, event):
+        # Akzeptiere das Event, damit das Release-Event an dieses Objekt geht
+        event.accept()
         self._animation.stop()
         self._animation.setEndValue(self.start_scale * 0.85)
         self._animation.start()
-        super().mousePressEvent(event)
+        # Debugging Print: Wenn das erscheint, wurde die Hardware-Ebene erreicht
+        print("Button gedrückt (Hardware-Event)")
 
     def mouseReleaseEvent(self, event):
         self._animation.stop()
         self._animation.setEasingCurve(QEasingCurve.Type.OutBack)
         self._animation.setEndValue(self.start_scale)
         self._animation.start()
+
         if self.can_toggle:
             self.is_toggled = not self.is_toggled
             self.current_pixmap = self.pixmap2 if self.is_toggled else self.pixmap1
             self.update()
+
+        # Signal senden
         self.clicked.emit()
         super().mouseReleaseEvent(event)
 
 
-# --- PERSONEN CONTAINER (DEIN ORIGINAL-DESIGN) ---
+# --- PERSONEN CONTAINER ---
 class PersonContainer(QFrame):
     def __init__(self, daten, index):
         super().__init__()
         self.setFixedSize(680, 400)
+        # WICHTIG: Keine Hintergrundfarbe, damit Klicks theoretisch durchgehen
         self.setStyleSheet("background: transparent; border: none; color: #1a1a1a;")
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(10, 5, 10, 5)
@@ -174,7 +187,7 @@ class ScalingAkteGUI(QGraphicsView):
         self.video_cap = None
         self.video_item = None
         self.is_animating = False
-        self.animation_speed = 0  # ms Verzögerung zwischen Frames
+        self.animation_speed = 25
 
         self.admin_menu = AdminMenu(self)
         self.show_closed_folder()
@@ -218,7 +231,6 @@ class ScalingAkteGUI(QGraphicsView):
         if ret:
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             h, w, ch = frame.shape
-            # .copy() verhindert den Speicher-Crash (0xC0000409)
             q_img = QImage(frame.data, w, h, ch * w, QImage.Format.Format_RGB888).copy()
             self.video_item.setPixmap(QPixmap.fromImage(q_img).scaled(1920, 1080))
             QTimer.singleShot(self.animation_speed, self.update_video_frame)
@@ -227,7 +239,6 @@ class ScalingAkteGUI(QGraphicsView):
             self.video_cap.release()
             self.video_cap = None
             self.video_item = None
-            # Zeit zum Aufräumen lassen vor dem Wechsel
             QTimer.singleShot(100, self.show_open_folder)
 
     def show_open_folder(self):
@@ -241,7 +252,6 @@ class ScalingAkteGUI(QGraphicsView):
         self.setup_buttons()
 
     def setup_ui_elements(self):
-        # Exakt deine gewünschten Positionen
         pos_list = [(230, 80), (1000, 80), (230, 560), (1000, 560)]
         for i, pos in enumerate(pos_list):
             if i < len(PERSONEN_DATEN):
@@ -249,23 +259,45 @@ class ScalingAkteGUI(QGraphicsView):
                 proxy = self.scene.addWidget(container)
                 proxy.setPos(pos[0], pos[1])
 
+                # DER FIX: Das ProxyWidget ignoriert Mausklicks
+                # So gehen Klicks an die Scene/Buttons dahinter weiter
+                proxy.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+                proxy.setZValue(1)
+
     def setup_buttons(self):
-        # Exakt dein gewünschtes Button-Interface
         button_scale = 0.1
         center_x = 1250
 
-        # 1. Sprach-Button
-        self.btn_language = AnimatedGraphicsButton("pictures/change_language_german.png",
-                                                   "pictures/change_language_english.png", scale=button_scale)
+        # --- SPRACH-BUTTON ---
+        self.btn_language = AnimatedGraphicsButton(
+            "pictures/change_language_german.png",
+            "pictures/change_language_english.png",
+            scale=button_scale
+        )
         w1 = self.btn_language.pixmap1.width() * button_scale
         self.btn_language.setPos((center_x - (w1 / 2)), 0)
+        self.btn_language.setZValue(100)  # Ganz nach oben
         self.scene.addItem(self.btn_language)
+        self.btn_language.clicked.connect(self.switch_language_logic)
 
         # 2. Reset-Button
         self.btn_reset = AnimatedGraphicsButton("pictures/reset_button.png", scale=button_scale)
         w2 = self.btn_reset.pixmap1.width() * button_scale
         self.btn_reset.setPos((center_x - (w2 / 2) + 60), 160)
+        self.btn_reset.setZValue(100)
         self.scene.addItem(self.btn_reset)
+        self.btn_reset.clicked.connect(self.reset_logic)
+
+    def switch_language_logic(self):
+        print("SIGNAL ERHALTEN: Sprache wechseln")
+        if self.btn_language.is_toggled:
+            print("Status: Englisch")
+        else:
+            print("Status: Deutsch")
+
+    def reset_logic(self):
+        print("SIGNAL ERHALTEN: Reset")
+        self.show_closed_folder()
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_E:
