@@ -15,6 +15,17 @@ pipeline:
     # --- MODELLSPEZIFISCHE EINSTELLUNGEN ---
     prompt: "Name the clothing and any accessories the person is wearing"
 
+  - id: "deepface"
+    name: "Merkmalsanalyse (DeepFace)"
+    enabled: true
+    watch_dir: "./final"
+    file_ext: ".yaml"
+    show_preview: true
+    # --- MODELLSPEZIFISCHE EINSTELLUNGEN ---
+    Deepface_emotion: true
+    Deepface_alter: true
+    Deepface_geschlecht: true
+
   # BEISPIEL:
   # - id: "deepface"
   #   name: "Emotionserkennung"

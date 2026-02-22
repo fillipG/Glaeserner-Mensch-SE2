@@ -32,6 +32,23 @@ services:
       - "./config.yaml:/app/config.yaml"
     restart: always
 
+# --- DEEPFACE MODELL ---
+  deepface:
+    build: ./deepface
+    image: museum-deepface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    volumes:
+      - "./faces_yolo:/data/input"      # Input für DeepFace (YOLO Ergebnisse)
+      - "./final:/data/processed"     # Output für DeepFace (YAML & Sketch)
+      - "./config.yaml:/app/config.yaml" # Zentrale Konfiguration
+    restart: always
+
   # --- FÜGE ANDERE MODELLE HIER EIN (BEISPIEL) ---
   # deepface:
   #   build: ./deepface_ai
