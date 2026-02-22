@@ -123,7 +123,6 @@ class PersonContainer(QFrame):
     def __init__(self, daten, index):
         super().__init__()
         self.setFixedSize(680, 400)
-        # WICHTIG: Keine Hintergrundfarbe, damit Klicks theoretisch durchgehen
         self.setStyleSheet("background: transparent; border: none; color: #1a1a1a;")
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(10, 5, 10, 5)
@@ -157,9 +156,11 @@ class PersonContainer(QFrame):
         right_side = QVBoxLayout()
         akte_titel = TypewriterLabel(f"Fallakte Nr: 2026/02/XY-{index + 1}", interval=40)
         akte_titel.setFont(QFont("Goudy Bookletter 1911", 24, QFont.Weight.Bold))
-        self.beschreibung = TypewriterLabel("Beispieltext für die Personenbeschreibung. Die Akte enthält alle Details.",
-                                            interval=20)
+
+        # Initialer Platzhalter
+        self.beschreibung = TypewriterLabel("Warte auf Daten...", interval=20)
         self.beschreibung.setFont(QFont("Goudy Bookletter 1911", 18))
+        self.beschreibung.setWordWrap(True)
 
         gefahr_label = QLabel(f"GEFAHRENSTUFE: {daten['gefahr']}")
         gefahr_label.setFont(QFont("Goudy Bookletter 1911", 18, QFont.Weight.Bold))
@@ -193,6 +194,12 @@ class ScalingAkteGUI(QGraphicsView):
         self.video_item = None
         self.is_animating = False
         self.animation_speed = 0
+        self.active_containers = []
+
+        # Timer für das Scannen des "final" Ordners
+        self.scan_timer = QTimer(self)
+        self.scan_timer.timeout.connect(self.update_descriptions_from_files)
+        self.scan_timer.start(2000)  # Scan alle 2 Sekunden
 
         self.admin_menu = AdminMenu(self)
         self.show_closed_folder()
@@ -203,8 +210,62 @@ class ScalingAkteGUI(QGraphicsView):
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setFrameShape(QFrame.Shape.NoFrame)
 
+    def update_descriptions_from_files(self):
+        """Scannt den 'final' Ordner und extrahiert die (ggf. mehrzeilige) 'description'."""
+        folder_path = "final"
+        if not os.path.exists(folder_path):
+            return
+
+        if not self.active_containers:
+            return
+
+        for i, container in enumerate(self.active_containers):
+            file_name = f"face{i + 1}_moondream.yaml"
+            file_path = os.path.join(folder_path, file_name)
+
+            new_text = "Keine Daten gefunden. Akte ausstehend."
+
+            if os.path.exists(file_path):
+                try:
+                    with open(file_path, "r", encoding="utf-8") as f:
+                        lines = f.readlines()
+
+                    description_lines = []
+                    found_description = False
+
+                    for line in lines:
+                        clean_line = line.strip()
+
+                        # Startpunkt finden
+                        if clean_line.startswith("description:"):
+                            found_description = True
+                            # Inhalt nach dem Doppelpunkt in der ersten Zeile mitnehmen
+                            first_part = line.split("description:", 1)[1].strip()
+                            if first_part:
+                                description_lines.append(first_part)
+                            continue
+
+                        # Wenn wir in der Description sind, weitersammeln bis zum nächsten Key
+                        if found_description:
+                            # Wenn die Zeile einen Doppelpunkt hat und am Anfang steht, ist es ein neuer Key
+                            if ":" in clean_line and not line.startswith(" "):
+                                break
+                            description_lines.append(clean_line)
+
+                    if description_lines:
+                        new_text = " ".join(description_lines).strip()
+
+                except Exception as e:
+                    new_text = f"Fehler beim Lesen: {e}"
+
+            # Update nur bei Textänderung
+            if container.beschreibung.full_text != new_text:
+                container.beschreibung.full_text = new_text
+                container.beschreibung.start_typing()
+
     def show_closed_folder(self):
         self.scene.clear()
+        self.active_containers = []  # Reset active containers
         self.is_animating = False
         path = "pictures/Akte_V1_Zu.png"
         if os.path.exists(path):
@@ -256,6 +317,9 @@ class ScalingAkteGUI(QGraphicsView):
         self.setup_ui_elements()
         self.setup_buttons()
 
+        # Einmaliger manueller Aufruf zum Initialisieren der Texte aus Dateien
+        self.update_descriptions_from_files()
+
         for container in self.active_containers:
             container.trigger_typing()
 
@@ -267,9 +331,6 @@ class ScalingAkteGUI(QGraphicsView):
                 container = PersonContainer(PERSONEN_DATEN[i], i)
                 proxy = self.scene.addWidget(container)
                 proxy.setPos(pos[0], pos[1])
-
-                # DER FIX: Das ProxyWidget ignoriert Mausklicks
-                # So gehen Klicks an die Scene/Buttons dahinter weiter
                 proxy.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
                 proxy.setZValue(1)
                 self.active_containers.append(container)
@@ -277,20 +338,14 @@ class ScalingAkteGUI(QGraphicsView):
     def setup_buttons(self):
         button_scale = 0.1
         center_x = 1250
-
-        # --- SPRACH-BUTTON ---
-        self.btn_language = AnimatedGraphicsButton(
-            "pictures/change_language_german.png",
-            "pictures/change_language_english.png",
-            scale=button_scale
-        )
+        self.btn_language = AnimatedGraphicsButton("pictures/change_language_german.png",
+                                                   "pictures/change_language_english.png", scale=button_scale)
         w1 = self.btn_language.pixmap1.width() * button_scale
         self.btn_language.setPos((center_x - (w1 / 2)), 0)
-        self.btn_language.setZValue(100)  # Ganz nach oben
+        self.btn_language.setZValue(100)
         self.scene.addItem(self.btn_language)
         self.btn_language.clicked.connect(self.switch_language_logic)
 
-        # 2. Reset-Button
         self.btn_reset = AnimatedGraphicsButton("pictures/reset_button.png", scale=button_scale)
         w2 = self.btn_reset.pixmap1.width() * button_scale
         self.btn_reset.setPos((center_x - (w2 / 2) + 60), 160)
@@ -299,14 +354,12 @@ class ScalingAkteGUI(QGraphicsView):
         self.btn_reset.clicked.connect(self.reset_logic)
 
     def switch_language_logic(self):
-        print("SIGNAL ERHALTEN: Sprache wechseln")
         if self.btn_language.is_toggled:
             print("Status: Englisch")
         else:
             print("Status: Deutsch")
 
     def reset_logic(self):
-        print("SIGNAL ERHALTEN: Reset")
         self.show_closed_folder()
 
     def keyPressEvent(self, event):
