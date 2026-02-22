@@ -1,0 +1,6 @@
+ultralytics
+opencv-python
+rembg
+onnxruntime
+pillow
+omegaconf

@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  face-extraction:
+    build: .
+    container_name: body_extraction_app
+    # Verhindert, dass der Container sofort nach Fehlern beendet wird (optional)
+    restart: unless-stopped
+    volumes:
+      # Spiegelt das aktuelle Verzeichnis für den Code-Zugriff
+      - .:/app
+      # Mountet die spezifischen Ordner für Input und Output
+      - ./main_image:/app/main_image
+      - ./faces_yolo:/app/faces_yolo
+      # Cache-Ordner: Verhindert erneutes Herunterladen der KI-Modelle
+      - ./models_cache/rembg:/root/.u2net
+      - ./models_cache/yolo:/app/models
+    environment:
+      # Sorgt dafür, dass Python-Logs sofort im Terminal erscheinen
+      - PYTHONUNBUFFERED=1
