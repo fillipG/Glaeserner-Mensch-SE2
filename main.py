@@ -4,6 +4,7 @@ import time
 from datetime import datetime
 import yaml
 import cv2
+from sympy import true, false
 
 try:
     import torch
@@ -17,6 +18,7 @@ from PyQt6.QtWidgets import QApplication
 class YOLOWorker(QThread):
     def run(self):
         # Muss hier importiert werden wegen Konflikten
+        global photo_taken
         from PersonPhotoCapture import PersonPhotoCapture
 
         # Ordner für gespeicherte Bilder erstellen
@@ -28,8 +30,10 @@ class YOLOWorker(QThread):
             # Foto aufnehmen mit PersonPhotoCapture
             # ==========================
             photo_capture = PersonPhotoCapture(save_dir="main_image", photo_delay=3)
-            while not self.isInterruptionRequested():
+            photo_taken = False
+            while not self.isInterruptionRequested() and not photo_taken:
                 captured_frame = photo_capture.capture_photo()
+                photo_taken = True
                 # ==========================
                 # Bild speichern
                 # ==========================
