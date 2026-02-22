@@ -32,6 +32,7 @@ def create_dummy_pixmap(color, text, size=(200, 200)):
 
 # --- ADMIN MENÜ ---
 class AdminMenu(QFrame):
+    """Admin-Menü mit statischen Anzeige- und Slider-Elementen."""
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFixedSize(450, 550)
@@ -62,6 +63,7 @@ class AdminMenu(QFrame):
 
 # --- ANIMIERTE BUTTONS ---
 class AnimatedGraphicsButton(QGraphicsObject):
+    """Grafischer Button mit Toggle- und Klick-Animation."""
     clicked = pyqtSignal()
 
     def __init__(self, img1_path, img2_path=None, scale=0.15, parent=None):
@@ -120,8 +122,12 @@ class AnimatedGraphicsButton(QGraphicsObject):
 
 # --- PERSONEN CONTAINER ---
 class PersonContainer(QFrame):
-    def __init__(self, daten, index):
+    """Container für Personenkarte inkl. Übersetzungslogik der festen Labels."""
+    def __init__(self, daten, index, language="de"):
         super().__init__()
+        self.daten = daten
+        self.index = index
+        self.language = language
         self.setFixedSize(680, 400)
         self.setStyleSheet("background: transparent; border: none; color: #1a1a1a;")
         main_layout = QVBoxLayout(self)
@@ -140,8 +146,7 @@ class PersonContainer(QFrame):
         img_placeholder.setStyleSheet("background-color: #e2e2e2; border: 1px solid #aaa;")
 
         stats_font = QFont("Goudy Bookletter 1911", 16)
-        stats_text = (f"GESCHLECHT: {daten['geschlecht']}\nAUGENFARBE: {daten['augen']}\n"
-                      f"STIMMUNG: {daten['stimmung']}\nALTER: {daten['alter']}")
+        stats_text = self._build_stats_text(self.language)
         self.stats_label = TypewriterLabel(stats_text, interval=25)
         self.stats_label.setFont(stats_font)
 
@@ -154,18 +159,20 @@ class PersonContainer(QFrame):
         line.setStyleSheet("color: rgba(0, 0, 0, 40);")
 
         right_side = QVBoxLayout()
-        akte_titel = TypewriterLabel(f"Fallakte Nr: 2026/02/XY-{index + 1}", interval=40)
+        akte_titel = TypewriterLabel(self._build_akte_title(self.language), interval=40)
         akte_titel.setFont(QFont("Goudy Bookletter 1911", 24, QFont.Weight.Bold))
+        self.akte_titel = akte_titel
 
         # Initialer Platzhalter
         self.beschreibung = TypewriterLabel("Warte auf Daten...", interval=20)
         self.beschreibung.setFont(QFont("Goudy Bookletter 1911", 18))
         self.beschreibung.setWordWrap(True)
 
-        gefahr_label = QLabel(f"GEFAHRENSTUFE: {daten['gefahr']}")
+        gefahr_label = QLabel(self._build_gefahr_text(self.language))
         gefahr_label.setFont(QFont("Goudy Bookletter 1911", 18, QFont.Weight.Bold))
         gefahr_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignBottom)
         if daten['gefahr'] == "EXTREM": gefahr_label.setStyleSheet("color: #a00000;")
+        self.gefahr_label = gefahr_label
 
         right_side.addWidget(akte_titel)
         right_side.addWidget(self.beschreibung)
@@ -177,7 +184,35 @@ class PersonContainer(QFrame):
         content_layout.addLayout(right_side, 65)
         main_layout.addLayout(content_layout)
 
-        self.typewriters = [self.header, self.stats_label, akte_titel, self.beschreibung]
+        self.typewriters = [self.header, self.stats_label, self.akte_titel, self.beschreibung]
+
+    def _build_stats_text(self, language):
+        labels = {
+            "de": {"geschlecht": "GESCHLECHT", "augen": "AUGENFARBE", "stimmung": "STIMMUNG", "alter": "ALTER"},
+            "en": {"geschlecht": "GENDER", "augen": "EYE COLOR", "stimmung": "MOOD", "alter": "AGE"},
+        }
+        l = labels.get(language, labels["de"])
+        return (f"{l['geschlecht']}: {self.daten['geschlecht']}\n"
+                f"{l['augen']}: {self.daten['augen']}\n"
+                f"{l['stimmung']}: {self.daten['stimmung']}\n"
+                f"{l['alter']}: {self.daten['alter']}")
+
+    def _build_akte_title(self, language):
+        prefix = "Fallakte Nr" if language == "de" else "Case file No"
+        return f"{prefix}: 2026/02/XY-{self.index + 1}"
+
+    def _build_gefahr_text(self, language):
+        label = "GEFAHRENSTUFE" if language == "de" else "THREAT LEVEL"
+        return f"{label}: {self.daten['gefahr']}"
+
+    def apply_language(self, language):
+        """Aktualisiert nur die festen Labels (ohne Variablenwerte)."""
+        self.language = language
+        self.stats_label.full_text = self._build_stats_text(language)
+        self.stats_label.start_typing()
+        self.akte_titel.full_text = self._build_akte_title(language)
+        self.akte_titel.start_typing()
+        self.gefahr_label.setText(self._build_gefahr_text(language))
 
     def trigger_typing(self):
         for tw in self.typewriters:
@@ -185,6 +220,7 @@ class PersonContainer(QFrame):
 
 # --- HAUPT GUI ---
 class ScalingAkteGUI(QGraphicsView):
+    """Haupt-GUI inklusive Spracheinstellung per config.yaml."""
     def __init__(self):
         super().__init__()
         self.scene = QGraphicsScene(0, 0, 1920, 1080)
@@ -195,6 +231,7 @@ class ScalingAkteGUI(QGraphicsView):
         self.is_animating = False
         self.animation_speed = 0
         self.active_containers = []
+        self.current_language = self._load_language_from_config()
 
         # Timer für das Scannen des "final" Ordners
         self.scan_timer = QTimer(self)
@@ -328,7 +365,7 @@ class ScalingAkteGUI(QGraphicsView):
         pos_list = [(230, 80), (1000, 80), (230, 560), (1000, 560)]
         for i, pos in enumerate(pos_list):
             if i < len(PERSONEN_DATEN):
-                container = PersonContainer(PERSONEN_DATEN[i], i)
+                container = PersonContainer(PERSONEN_DATEN[i], i, self.current_language)
                 proxy = self.scene.addWidget(container)
                 proxy.setPos(pos[0], pos[1])
                 proxy.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
@@ -344,6 +381,10 @@ class ScalingAkteGUI(QGraphicsView):
         self.btn_language.setPos((center_x - (w1 / 2)), 0)
         self.btn_language.setZValue(100)
         self.scene.addItem(self.btn_language)
+        if self.current_language == "en":
+            self.btn_language.is_toggled = True
+            self.btn_language.current_pixmap = self.btn_language.pixmap2
+            self.btn_language.update()
         self.btn_language.clicked.connect(self.switch_language_logic)
 
         self.btn_reset = AnimatedGraphicsButton("pictures/reset_button.png", scale=button_scale)
@@ -353,10 +394,64 @@ class ScalingAkteGUI(QGraphicsView):
         self.scene.addItem(self.btn_reset)
         self.btn_reset.clicked.connect(self.reset_logic)
 
+    def _load_language_from_config(self):
+        """Liest die Sprache aus config.yaml, Standard ist 'de'."""
+        config_path = "config.yaml"
+        if not os.path.exists(config_path):
+            return "de"
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    stripped = line.strip()
+                    if stripped.startswith("language:"):
+                        value = stripped.split(":", 1)[1].strip().strip("\"'")
+                        return value if value in {"de", "en"} else "de"
+        except Exception:
+            return "de"
+        return "de"
+
+    def _save_language_to_config(self, language):
+        """Schreibt die Sprache in config.yaml, erzeugt den Key bei Bedarf."""
+        config_path = "config.yaml"
+        lines = []
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, "r", encoding="utf-8") as f:
+                    lines = f.readlines()
+            except Exception:
+                lines = []
+
+        updated = False
+        for i, line in enumerate(lines):
+            stripped = line.lstrip()
+            if stripped.startswith("language:"):
+                prefix = line[:len(line) - len(stripped)]
+                lines[i] = f"{prefix}language: {language}\n"
+                updated = True
+                break
+
+        if not updated:
+            lines.append(f"language: {language}\n")
+
+        with open(config_path, "w", encoding="utf-8") as f:
+            f.writelines(lines)
+
+    def _apply_language_to_containers(self, language):
+        """Setzt die Sprache für alle aktiven Container."""
+        for container in self.active_containers:
+            container.apply_language(language)
+
     def switch_language_logic(self):
+        """Wechselt die UI-Sprache und synchronisiert config.yaml."""
         if self.btn_language.is_toggled:
+            self.current_language = "en"
+            self._apply_language_to_containers("en")
+            self._save_language_to_config("en")
             print("Status: Englisch")
         else:
+            self.current_language = "de"
+            self._apply_language_to_containers("de")
+            self._save_language_to_config("de")
             print("Status: Deutsch")
 
     def reset_logic(self):
@@ -377,6 +472,7 @@ class ScalingAkteGUI(QGraphicsView):
         self.fitInView(self.scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
 
 class TypewriterLabel(QLabel):
+    """Label mit Schreibmaschinen-Effekt."""
     finished = pyqtSignal()
 
     def __init__(self, full_text, interval=30, parent=None):

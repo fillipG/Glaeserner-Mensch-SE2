@@ -3,7 +3,7 @@
 #    Kopiere einen bestehenden Block unter 'pipeline:'.
 # ==============================================================================
 
-language: "de"  # "de" für Deutsch, "en" für Original (Englisch)
+language: en
 
 pipeline:
   - id: "moondream"
