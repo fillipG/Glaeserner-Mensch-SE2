@@ -1,0 +1,19 @@
+services:
+  deepface-worker:
+    build: .
+    container_name: deepface_ai_container
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    volumes:
+      - ./faces_yolo:/data/input
+      - ./final:/data/processed
+      - ./config.yaml:/app/config.yaml
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
