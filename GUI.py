@@ -316,11 +316,15 @@ class ScalingAkteGUI(QGraphicsView):
         proxy = self.scene.addWidget(self.btn_open)
         proxy.setPos(1350, 850)
 
-    def start_animation(self):
-        video_path = "pictures/Akte_Animation.mp4"
+    def start_animation(self, checked=False, video_path="pictures/Akte_Animation.mp4", end_callback=None):
+        # Support calls from QPushButton.clicked (passes a bool) and direct path calls.
+        if isinstance(checked, (str, os.PathLike)):
+            video_path = checked
+            checked = False
         if not os.path.exists(video_path):
-            self.show_open_folder()
+            (end_callback or self.show_open_folder)()
             return
+        self._animation_end_callback = end_callback or self.show_open_folder
         self.video_cap = cv2.VideoCapture(video_path)
         self.scene.clear()
         self.video_item = self.scene.addPixmap(QPixmap(1920, 1080))
@@ -342,7 +346,7 @@ class ScalingAkteGUI(QGraphicsView):
             self.video_cap.release()
             self.video_cap = None
             self.video_item = None
-            QTimer.singleShot(100, self.show_open_folder)
+            QTimer.singleShot(100, self._animation_end_callback)
 
     def show_open_folder(self):
         self.scene.clear()
@@ -455,7 +459,10 @@ class ScalingAkteGUI(QGraphicsView):
             print("Status: Deutsch")
 
     def reset_logic(self):
-        self.show_closed_folder()
+        QTimer.singleShot(0, lambda: self.start_animation(
+            "pictures/Akte_Animation_reverse.mp4",
+            end_callback=self.show_closed_folder
+        ))
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_E:
