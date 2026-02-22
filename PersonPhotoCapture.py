@@ -51,11 +51,9 @@ class PersonPhotoCapture:
                     left_foot = person[15]
                     right_foot = person[16]
                     margin = 20
-                    # Prüfen, ob Kopf und Füße im Bild sind
+                    # Prüfen, ob Kopf im Bild ist
                     if (head[0] > margin and head[0] < frame_w - margin and
-                        head[1] > margin and head[1] < frame_h - margin and
-                        left_foot[1] > margin and left_foot[1] < frame_h - margin and
-                        right_foot[1] > margin and right_foot[1] < frame_h - margin):
+                        head[1] > margin and head[1] < frame_h - margin):
                         person_complete = True
                         last_person_seen = current_time
 
