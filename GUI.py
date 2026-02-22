@@ -7,6 +7,8 @@ from PyQt6.QtWidgets import (QApplication, QGraphicsView, QGraphicsScene,
                              QLabel, QFrame, QGraphicsObject, QPushButton, QSlider)
 from PyQt6.QtGui import QPixmap, QFont, QColor, QPainter, QImage
 from PyQt6.QtCore import Qt, pyqtSignal, QRectF, QPropertyAnimation, pyqtProperty, QEasingCurve, QTimer
+from sketch import create_advanced_sketch
+from service import TranslationService
 
 # --- DATEN-KONFIGURATION ---
 PERSONEN_DATEN = [
@@ -122,12 +124,13 @@ class AnimatedGraphicsButton(QGraphicsObject):
 
 # --- PERSONEN CONTAINER ---
 class PersonContainer(QFrame):
-    """Container für Personenkarte inkl. Übersetzungslogik der festen Labels."""
+    """Container fuer Personenkarte inkl. Uebersetzungslogik der festen Labels."""
     def __init__(self, daten, index, language="de"):
         super().__init__()
         self.daten = daten
         self.index = index
         self.language = language
+        self._last_description_source = None
         self.setFixedSize(680, 400)
         self.setStyleSheet("background: transparent; border: none; color: #1a1a1a;")
         main_layout = QVBoxLayout(self)
@@ -144,6 +147,7 @@ class PersonContainer(QFrame):
         img_placeholder.setFixedSize(160, 180)
         img_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         img_placeholder.setStyleSheet("background-color: #e2e2e2; border: 1px solid #aaa;")
+        self.img_label = img_placeholder
 
         stats_font = QFont("Goudy Bookletter 1911", 16)
         stats_text = self._build_stats_text(self.language)
@@ -185,6 +189,25 @@ class PersonContainer(QFrame):
         main_layout.addLayout(content_layout)
 
         self.typewriters = [self.header, self.stats_label, self.akte_titel, self.beschreibung]
+
+    def set_sketch_image(self, sketch_img):
+        """Setzt das Skizzenbild, das aus create_advanced_sketch() kommt."""
+        if sketch_img is None:
+            return
+        if len(sketch_img.shape) == 2:
+            h, w = sketch_img.shape
+            q_img = QImage(sketch_img.data, w, h, w, QImage.Format.Format_Grayscale8).copy()
+        else:
+            rgb = cv2.cvtColor(sketch_img, cv2.COLOR_BGR2RGB)
+            h, w, ch = rgb.shape
+            q_img = QImage(rgb.data, w, h, ch * w, QImage.Format.Format_RGB888).copy()
+        self.img_label.setPixmap(
+            QPixmap.fromImage(q_img).scaled(
+                self.img_label.size(),
+                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+        )
 
     def _build_stats_text(self, language):
         labels = {
@@ -232,6 +255,7 @@ class ScalingAkteGUI(QGraphicsView):
         self.animation_speed = 0
         self.active_containers = []
         self.current_language = self._load_language_from_config()
+        self.translator = TranslationService(target_lang=self.current_language)
 
         # Timer für das Scannen des "final" Ordners
         self.scan_timer = QTimer(self)
@@ -282,7 +306,7 @@ class ScalingAkteGUI(QGraphicsView):
                                 description_lines.append(first_part)
                             continue
 
-                        # Wenn wir in der Description sind, weitersammeln bis zum nächsten Key
+                        # Wenn wir in der Description sind, weitersammeln bis zum naechsten Key
                         if found_description:
                             # Wenn die Zeile einen Doppelpunkt hat und am Anfang steht, ist es ein neuer Key
                             if ":" in clean_line and not line.startswith(" "):
@@ -295,10 +319,20 @@ class ScalingAkteGUI(QGraphicsView):
                 except Exception as e:
                     new_text = f"Fehler beim Lesen: {e}"
 
-            # Update nur bei Textänderung
-            if container.beschreibung.full_text != new_text:
-                container.beschreibung.full_text = new_text
-                container.beschreibung.start_typing()
+            if new_text != container._last_description_source:
+                container._last_description_source = new_text
+                translated_text = self.translator.translate_text(new_text) if self.translator else new_text
+                if container.beschreibung.full_text != translated_text:
+                    container.beschreibung.full_text = translated_text
+                    container.beschreibung.start_typing()
+
+    def _refresh_descriptions_for_language(self):
+        for container in self.active_containers:
+            if container._last_description_source:
+                translated_text = self.translator.translate_text(container._last_description_source)
+                if container.beschreibung.full_text != translated_text:
+                    container.beschreibung.full_text = translated_text
+                    container.beschreibung.start_typing()
 
     def show_closed_folder(self):
         self.scene.clear()
@@ -370,6 +404,10 @@ class ScalingAkteGUI(QGraphicsView):
         for i, pos in enumerate(pos_list):
             if i < len(PERSONEN_DATEN):
                 container = PersonContainer(PERSONEN_DATEN[i], i, self.current_language)
+                image_path = os.path.join("faces_yolo", f"face{i + 1}.jpg")
+                if os.path.exists(image_path):
+                    sketch_img = create_advanced_sketch(image_path)
+                    container.set_sketch_image(sketch_img)
                 proxy = self.scene.addWidget(container)
                 proxy.setPos(pos[0], pos[1])
                 proxy.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
@@ -457,6 +495,8 @@ class ScalingAkteGUI(QGraphicsView):
             self._apply_language_to_containers("de")
             self._save_language_to_config("de")
             print("Status: Deutsch")
+        self.translator = TranslationService(target_lang=self.current_language)
+        self._refresh_descriptions_for_language()
 
     def reset_logic(self):
         QTimer.singleShot(0, lambda: self.start_animation(
