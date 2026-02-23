@@ -1,91 +1,74 @@
+# pip install ultralytics opencv-python rembg pillow
 import cv2
 from ultralytics import YOLO
-from rembg import remove, new_session
+from rembg import remove
 from PIL import Image
 import os
-import shutil
+import time
 
-# --- KONFIGURATION ---
+# Einstellungen
 INPUT_DIR = "main_image"
-OUTPUT_DIR = "faces_yolo"
-CONFIDENCE = 0.5
-PADDING_RATIO = 0.4  # Proportionaler Rand basierend auf der Gesichtsgröße
+confidence = 0.7  # Ab welcher Konfidenz ein Gesicht erkannt wird
+padding = 150     # Zusätzlicher Rand, verbessert das entfernen des Hintergrunds.
 
-# --- 1. AUSGABEORDNER LEEREN (Docker-kompatibel) ---
-# Erstellt den Ordner falls er fehlt oder löscht nur den Inhalt,
-# um 'Device or resource busy' Fehlermeldungen in Docker zu vermeiden.
-if not os.path.exists(OUTPUT_DIR):
-    os.makedirs(OUTPUT_DIR)
-else:
-    for filename in os.listdir(OUTPUT_DIR):
-        file_path = os.path.join(OUTPUT_DIR, filename)
-        try:
-            if os.path.isfile(file_path) or os.path.islink(file_path):
-                os.unlink(file_path)
-            elif os.path.isdir(file_path):
-                shutil.rmtree(file_path)
-        except Exception as e:
-            print(f"Fehler beim Bereinigen von {file_path}: {e}")
+# Ausgabe-Ordner erstellen
+if not os.path.exists("faces_yolo"):
+    os.makedirs("faces_yolo")
 
-# --- 2. EINGABEBILD SUCHEN ---
-files = [f for f in os.listdir(INPUT_DIR) if f.endswith(('.png', '.jpg', '.jpeg'))]
-if not files:
-    print(f"Abbruch: Keine Bilddateien in {INPUT_DIR} gefunden.")
-    exit()
+# YOLO-Modell laden (einmalig, außerhalb der Schleife)
+model = YOLO("yolov8n-face.pt")  # Yolo-face Modell
 
-# Verarbeitet die erste gefundene Bilddatei
-image_path = os.path.join(INPUT_DIR, files[0])
-print(f"Analysiere Datei: {image_path}")
+print("Warte auf Bilder im Ordner 'main_image'... ")
 
-# --- 3. MODELLE INITIALISIEREN ---
-# Lädt das YOLO-Gesichtsmodell
-model = YOLO("yolov8n-face.pt")
+# Dauerhaft den Ordner überwachen
+while True:
+    # Bild im Ordner suchen
+    image_files = [
+        f for f in os.listdir(INPUT_DIR)
+        if f.endswith(('.png', '.jpg', '.jpeg'))
+    ]
 
-# Erstellt eine rembg-Sitzung für bessere Performance
-rembg_session = new_session()
+    if image_files:
+        image_path = os.path.join(INPUT_DIR, image_files[0])
+        print(f"Bild gefunden: {image_path} – wird verarbeitet...")
 
-# --- 4. BILDVERARBEITUNG ---
-image = cv2.imread(image_path)
-if image is None:
-    print("Fehler: Bilddatei konnte nicht geladen werden.")
-    exit()
+        # Bild laden
+        image = cv2.imread(image_path)
 
-height, width = image.shape[:2]
-results = model(image, conf=CONFIDENCE)
+        # Gesichter erkennen
+        results = model(image, conf=confidence)
 
-face_nr = 1
-for result in results:
-    for box in result.boxes:
-        # Extraktion der Koordinaten
-        x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
-        
-        # Berechnung des dynamischen Randes
-        face_w = x2 - x1
-        face_h = y2 - y1
-        pad_w = int(face_w * PADDING_RATIO)
-        pad_h = int(face_h * PADDING_RATIO)
+        # Für jedes erkannte Gesicht
+        face_nr = 1
+        for result in results:
+            for box in result.boxes:
+                # Koordinaten vom Gesicht
+                x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+                x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
 
-        # Zuschnitt berechnen und Bildgrenzen einhalten
-        nx1 = max(0, int(x1 - pad_w))
-        ny1 = max(0, int(y1 - pad_h))
-        nx2 = min(width, int(x2 + pad_w))
-        ny2 = min(height, int(y2 + pad_h))
+                # Rand hinzufügen, aber innerhalb der Bildgrenzen
+                height, width = image.shape[:2]
+                x1 = max(0, x1 - padding)
+                y1 = max(0, y1 - padding)
+                x2 = min(width, x2 + padding)
+                y2 = min(height, y2 + padding)
 
-        # Bild ausschneiden und konvertieren
-        face_crop = image[ny1:ny2, nx1:nx2]
-        face_rgb = cv2.cvtColor(face_crop, cv2.COLOR_BGR2RGB)
-        face_pil = Image.fromarray(face_rgb)
+                # Gesicht ausschneiden
+                face = image[y1:y2, x1:x2]
 
-        # Hintergrund mittels rembg entfernen
-        print(f"Verarbeite Gesicht Nummer {face_nr}...")
-        face_no_bg = remove(face_pil, session=rembg_session)
+                # Zu RGB konvertieren
+                face_rgb = cv2.cvtColor(face, cv2.COLOR_BGR2RGB)
+                face_pil = Image.fromarray(face_rgb)
 
-        # Speichervorgang als PNG
-        output_filename = f"face_{face_nr}.png"
-        output_path = os.path.join(OUTPUT_DIR, output_filename)
-        face_no_bg.save(output_path)
-        print(f"Datei gespeichert: {output_path}")
-        
-        face_nr += 1
+                # Hintergrund entfernen
+                face_no_bg = remove(face_pil)
 
-print(f"Verarbeitung abgeschlossen. {face_nr - 1} Gesichter extrahiert.")
+                # Speichern
+                face_no_bg.save(f"faces_yolo/face{face_nr}.png")
+                print(f"  Gesicht {face_nr} gespeichert.")
+                face_nr += 1
+
+        print(f"Fertig! Gesichter ausgeschnitten.")
+
+    # 0.5 Sekunde warten, dann erneut prüfen
+    time.sleep(0.5)
