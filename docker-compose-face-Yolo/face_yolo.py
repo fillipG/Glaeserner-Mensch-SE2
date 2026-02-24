@@ -11,10 +11,6 @@ INPUT_DIR = "main_image"
 confidence = 0.7  # Ab welcher Konfidenz ein Gesicht erkannt wird
 padding = 150     # Zusätzlicher Rand, verbessert das entfernen des Hintergrunds.
 
-# Ausgabe-Ordner erstellen
-if not os.path.exists("faces_yolo"):
-    os.makedirs("faces_yolo")
-
 # YOLO-Modell laden (einmalig, außerhalb der Schleife)
 model = YOLO("yolov8n-face.pt")  # Yolo-face Modell
 
