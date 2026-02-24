@@ -9,25 +9,29 @@
 
 3) Kamera öffnet sich automatisch.
     - ESC drücken, um das Programm zu beenden.
+
+Hinweis:
+    distance und factor können angepasst werden, 
+    um die Genauigkeit der Größenschätzung zu verbessern.
+
 """
+
 
 from ultralytics import YOLO
 import cv2
 import numpy as np
-import time
 
-distance = 3.0
-factor = 0.158
+# Kalibrierung des Faktors:
+# alter Faktor = 0.4
+# echt = 180 cm
+# angezeigt = 165 cm
+# neuer Faktor = 0.4 * (180/165) = 0.436
 
-# ===== Timer Variablen =====
-duration = 3
-person_start_time = None
-image_saved = False
-last_capture_time = None
-# ===========================
+distance = 3.0          # Entfernung der Person in Metern
+factor = 0.158       # Startwert für den Faktor (angepasst)
 
 model = YOLO("yolov8n-pose.pt")
-cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+cap = cv2.VideoCapture(0)
 
 while True:
     ret, frame = cap.read()
@@ -35,108 +39,50 @@ while True:
         break
 
     results = model(frame, verbose=False)
+
     yolo_img = results[0].plot()
+
     r = results[0]
 
-    current_time = time.time()
-    frame_height, frame_width = frame.shape[:2]
-
-    person_complete = False
-
-    # ===============================
-    # PERSON ERKANNT?
-    # ===============================
+    # Falls Keypoints erkannt wurden, Größe berechnen
     if r.keypoints is not None and len(r.keypoints.xy) > 0:
-
+        
         person = r.keypoints.xy[0]
 
-        # Prüfen ob Kopf + beide Füße existieren
-        if len(person) > 16:
-            head = person[0]
-            left_foot = person[15]
-            right_foot = person[16]
+        head_x, head_y = person[0]    # Kopf 
+        foot = None
 
-            if (head[0] > 0 and head[1] > 0 and
-                left_foot[0] > 0 and left_foot[1] > 0 and
-                right_foot[0] > 0 and right_foot[1] > 0):
+        # Fuß
+        for idx in [16, 14, 15, 13]:
+            if idx < len(person):
+                foot = person[idx]
+                break
 
-                margin = 20
-                if (margin < head[0] < frame_width - margin and
-                    margin < head[1] < frame_height - margin and
-                    margin < left_foot[1] < frame_height - margin and
-                    margin < right_foot[1] < frame_height - margin):
+        if foot is not None:
+            foot_x, foot_y = foot
 
-                    person_complete = True
+            # Pixelhöhe
+            pixel_height = abs(float(foot_y) - float(head_y))
 
-    # ===============================
-    # TIMER + COUNTDOWN
-    # ===============================
-    if person_complete:
+            height_cm = pixel_height * distance * factor
+            current_height = height_cm    #speichern der aktuellen Größe
+            
 
-        if person_start_time is None:
-            person_start_time = current_time
+            cv2.putText(yolo_img, f"{height_cm:.1f} cm",
+                        (20, 40), cv2.FONT_HERSHEY_SIMPLEX,
+                        1, (0, 255, 0), 2)
 
-        elapsed = current_time - person_start_time
-        remaining = duration - elapsed
-
-        # Countdown anzeigen
-        if remaining > 0:
-            cv2.putText(yolo_img,
-                        f"Foto in: {int(remaining) + 1}",
-                        (20, 80),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        1.2, (0, 255, 255), 3)
-
-        # Foto speichern
-        elif not image_saved:
-            filename = f"person_detected_{int(current_time)}.jpg"
-            cv2.imwrite(filename, frame)
-            print(f"Bild gespeichert: {filename}")
-
-            image_saved = True
-            last_capture_time = current_time
+        else:
+            cv2.putText(yolo_img, "Fuss nicht erkannt", (20, 40),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0,0,255), 2)
 
     else:
-        person_start_time = None
-        image_saved = False
-
-    # ===============================
-    # FOTO-AUFGENOMMEN ANZEIGE
-    # ===============================
-    if last_capture_time is not None:
-        if current_time - last_capture_time < 2:
-            cv2.putText(yolo_img,
-                        "FOTO AUFGENOMMEN!",
-                        (20, 140),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        1.2, (0, 255, 0), 3)
-
-    # ===============================
-    # GRÖSSENBERECHNUNG
-    # ===============================
-    if person_complete:
-
-        head_x, head_y = head
-        foot = left_foot if left_foot[1] > right_foot[1] else right_foot
-        foot_x, foot_y = foot
-
-        pixel_height = abs(float(foot_y) - float(head_y))
-        height_cm = pixel_height * distance * factor
-
-        cv2.putText(yolo_img, f"{height_cm:.1f} cm",
-                    (20, 40), cv2.FONT_HERSHEY_SIMPLEX,
-                    1, (0, 255, 0), 2)
-
-    else:
-        cv2.putText(yolo_img,
-                    "Person nicht komplett sichtbar",
-                    (20, 40),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    1, (0, 0, 255), 2)
+        cv2.putText(yolo_img, "Keine Person erkannt", (20, 40),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0,0,255), 2)
 
     cv2.imshow("YOLO Pose - Groesse", yolo_img)
 
-    if cv2.waitKey(1) == 27:
+    if cv2.waitKey(1) == 27:  # ESC
         break
 
 cap.release()
