@@ -7,9 +7,15 @@ services:
     # Verhindert, dass der Container sofort nach Fehlern beendet wird (optional)
     restart: unless-stopped
     volumes:
+      # Verknüpft das aktuelle Verzeichnis (.) mit /app im Container
       - .:/app
-      - ../faces_yolo:/app/faces_yolo
-      - ../final:/app/final
+      
+      # Greift auf den globalen Ordner "main_image" eine Ebene höher zu
+      - ../main_image:/app/main_image
+      
+      # Falls die Ergebnisse in den globalen "faces_yolo" Ordner sollen:
+      - ../body_yolo:/app/body_yolo
+      
       # Cache-Ordner: Verhindert erneutes Herunterladen der KI-Modelle
       - ./models_cache/rembg:/root/.u2net
       - ./models_cache/yolo:/app/models

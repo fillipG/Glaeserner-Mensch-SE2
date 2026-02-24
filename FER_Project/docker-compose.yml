@@ -1,8 +1,0 @@
-services:
-  emotion-scanner:
-    build: .
-    container_name: fer_emotion_scanner
-    volumes:
-      - ./main_image:/app/main_image
-      - ./final:/app/final
-    restart: unless-stopped
