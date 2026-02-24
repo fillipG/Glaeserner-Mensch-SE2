@@ -1,0 +1,10 @@
+services:
+  deepface-app:
+    build: .
+    container_name: deepface_project_container
+    volumes:
+      - .:/app
+      - ../faces_yolo:/app/faces_yolo
+      - ../final:/app/final
+    environment:
+      - PYTHONUNBUFFERED=1
