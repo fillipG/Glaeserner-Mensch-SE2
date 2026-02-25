@@ -18,7 +18,7 @@ def scan_image(detector, image_path, output_folder, last_modified):
 
     try:
         mtime = os.path.getmtime(image_path)
-        
+
         # Nur scannen, wenn neu oder Zeitstempel geändert
         if filename in last_modified and last_modified[filename] == mtime:
             return
@@ -26,7 +26,7 @@ def scan_image(detector, image_path, output_folder, last_modified):
         # RGB-Fix für PNG/RGBA
         img = Image.open(image_path).convert('RGB')
         img_array = np.array(img)
-        
+
         result = detector.detect_emotions(img_array)
 
         if result:
@@ -64,8 +64,7 @@ def main():
     last_modified = {}
     source = config.SCAN_FOLDER
     output = config.FINAL_FOLDER
-    os.makedirs(output, exist_ok=True)
-    
+
     print(f"🔍 Permanente Überwachung gestartet: {source}")
     print("💡 Tipp: Kopiere jetzt einfach ein Bild in den Ordner...")
 
@@ -81,12 +80,12 @@ def main():
 
             if not images:
                 # Optional: Ein Punkt alle 10 Sek anzeigen, um zu sehen, dass er noch lebt
-                pass 
+                pass
 
             for img_path in images:
                 scan_image(detector, img_path, output, last_modified)
             pass
-        
+
         # Wartezeit zwischen den Scans (z.B. 0.5 Sek aus config)
         time.sleep(config.SCAN_INTERVAL)
 
