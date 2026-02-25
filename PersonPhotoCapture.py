@@ -16,7 +16,6 @@ class PersonPhotoCapture:
         self.PHOTO_DELAY_SECONDS = photo_delay       # Sekunden bis Foto
         self.PERSON_LOST_TOLERANCE = lost_tolerance # Toleranz, falls Person kurz verschwindet
 
-        os.makedirs(self.save_dir, exist_ok=True)   # Speicherordner erstellen
         self.model = YOLO("yolov8n-pose.pt")        # YOLO Pose-Modell laden
 
     def capture_photo(self):
