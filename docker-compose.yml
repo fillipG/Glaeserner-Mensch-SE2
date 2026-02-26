@@ -15,7 +15,7 @@
 services:
 
   moondream:
-    build: ./moondream_ai
+    build: General ordner/moondream_ai
     image: museum-moondream
     deploy:
       resources:
@@ -27,8 +27,8 @@ services:
     environment:
       - ANALYSIS_PROMPT=${MOONDREAM_PROMPT}
     volumes:
-      - "./faces_yolo:/data/input"
-      - "./final:/data/processed"
+      - "./General Ordner/faces_yolo:/data/input"
+      - "./General Ordner/final:/data/processed"
       - "./config.yaml:/app/config.yaml"
     restart: always
 
