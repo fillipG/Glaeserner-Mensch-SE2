@@ -2,11 +2,12 @@ import os
 import sys
 import cv2
 import yaml
+import time
 
 from PyQt6.QtWidgets import (QApplication, QGraphicsView, QGraphicsScene,
                              QWidget, QVBoxLayout, QHBoxLayout,
                              QLabel, QFrame, QGraphicsObject, QPushButton, QSlider, QCheckBox, QLineEdit, QScrollArea, QSizePolicy)
-from PyQt6.QtGui import QPixmap, QFont, QColor, QPainter, QImage
+from PyQt6.QtGui import QPixmap, QFont, QColor, QPainter, QImage, QPen
 from PyQt6.QtCore import Qt, pyqtSignal, QRectF, QPropertyAnimation, pyqtProperty, QEasingCurve, QTimer
 from sketch import create_advanced_sketch
 from service import TranslationService
@@ -67,12 +68,56 @@ class AnimatedGraphicsButton(QGraphicsObject):
         self.clicked.emit()
         super().mousePressEvent(event)
 
+
+class CircularTimerItem(QGraphicsObject):
+    """Runder Countdown-Overlay mit modernem Ring-Design."""
+    def __init__(self, duration_s, diameter=220, parent=None):
+        super().__init__(parent)
+        self.duration_s = max(1, int(duration_s))
+        self.diameter = int(diameter)
+        self.progress = 0.0  # 0.0 .. 1.0
+        self.remaining_s = self.duration_s
+        self.setZValue(200)
+
+    def boundingRect(self):
+        return QRectF(0, 0, self.diameter, self.diameter)
+
+    def set_progress(self, progress, remaining_s):
+        self.progress = max(0.0, min(1.0, float(progress)))
+        self.remaining_s = max(0, int(round(remaining_s)))
+        self.update()
+
+    def paint(self, painter, option, widget=None):
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        rect = self.boundingRect().adjusted(10, 10, -10, -10)
+
+        # Hintergrund-Ring
+        bg_pen = QPen(QColor(120, 96, 72, 160), 20)
+        bg_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(bg_pen)
+        painter.drawEllipse(rect)
+
+        # Fortschritts-Ring
+        fg_pen = QPen(QColor(244, 228, 188, 230), 20)
+        fg_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(fg_pen)
+        start_angle = 90 * 16
+        span_angle = -int(360 * 16 * self.progress)
+        painter.drawArc(rect, start_angle, span_angle)
+
+        # Text
+        painter.setPen(QColor(244, 228, 188))
+        font = QFont("Graduate", 35, QFont.Weight.Bold)
+        painter.setFont(font)
+        painter.drawText(self.boundingRect(), Qt.AlignmentFlag.AlignCenter, f"{self.remaining_s}s")
+
 # --- ADMIN MENÜ ---
 class AdminMenu(QFrame):
     """Admin-Menue mit Anzeige- und Slider-Elementen."""
     wait_time_changed = pyqtSignal(int)
     animation_speed_changed = pyqtSignal(int)
     fullscreen_toggled = pyqtSignal(bool)
+    developer_mode_toggled = pyqtSignal(bool)
     moondream_enabled_changed = pyqtSignal(bool)
     moondream_prompt_changed = pyqtSignal(str)
     deepface_enabled_changed = pyqtSignal(bool)
@@ -146,6 +191,16 @@ class AdminMenu(QFrame):
         )
         self.fullscreen_button.toggled.connect(self._on_fullscreen_toggled)
         graphics_layout.addWidget(self.fullscreen_button)
+
+        self.developer_mode_button = QPushButton("Developer Mode: AUS")
+        self.developer_mode_button.setCheckable(True)
+        self.developer_mode_button.setStyleSheet(
+            "QPushButton { background-color: #3d2b1f; color: #f4e4bc; border: 2px solid #f4e4bc; "
+            "border-radius: 10px; padding: 8px 14px; font-size: 16px; font-weight: bold; }"
+            "QPushButton:checked { background-color: #5a4030; }"
+        )
+        self.developer_mode_button.toggled.connect(self._on_developer_mode_toggled)
+        graphics_layout.addWidget(self.developer_mode_button)
         layout.addWidget(graphics_box)
 
         layout.addWidget(self._section_title("KI-MODELLE"))
@@ -243,6 +298,10 @@ class AdminMenu(QFrame):
         self.fullscreen_button.setText("Vollbild: AN" if checked else "Vollbild: AUS")
         self.fullscreen_toggled.emit(checked)
 
+    def _on_developer_mode_toggled(self, checked):
+        self.developer_mode_button.setText("Developer Mode: AN" if checked else "Developer Mode: AUS")
+        self.developer_mode_toggled.emit(checked)
+
     def _on_moondream_prompt_changed(self):
         if self.moondream_prompt is None:
             return
@@ -256,6 +315,11 @@ class AdminMenu(QFrame):
 
         self._set_toggle_button(self.fullscreen_button, settings.get("fullscreen", True))
         self.fullscreen_button.setText("Vollbild: AN" if self.fullscreen_button.isChecked() else "Vollbild: AUS")
+
+        self._set_toggle_button(self.developer_mode_button, settings.get("developer_mode", False))
+        self.developer_mode_button.setText(
+            "Developer Mode: AN" if self.developer_mode_button.isChecked() else "Developer Mode: AUS"
+        )
 
         self._set_checkbox_value(self.moondream_enabled, settings.get("moondream_enabled", True))
         if self.moondream_prompt is not None:
@@ -427,9 +491,16 @@ class ScalingAkteGUI(QGraphicsView):
         self.wait_time_file_closed = int(self.config.get("wait_time_file_closed", 3))
         self.animation_speed = int(self.config.get("animation_speed", 1))
         self.is_fullscreen = bool(self.config.get("fullscreen", True))
+        self.developer_mode = bool(self.config.get("developer_mode", False))
         self.active_containers = []
         self.current_language = self.config.get("language", "de")
         self.translator = TranslationService(target_lang=self.current_language)
+
+        self.wait_timer = QTimer(self)
+        self.wait_timer.timeout.connect(self._update_wait_timer)
+        self.wait_timer_item = None
+        self._wait_start_time = None
+        self._wait_duration_s = 0
 
         # Timer für das Scannen des "final" Ordners
         self.scan_timer = QTimer(self)
@@ -514,19 +585,61 @@ class ScalingAkteGUI(QGraphicsView):
         self.scene.clear()
         self.active_containers = []  # Reset active containers
         self.is_animating = False
+        if self.wait_timer.isActive():
+            self.wait_timer.stop()
         path = "pictures/Akte_V1_Zu.png"
         if os.path.exists(path):
             self.scene.addPixmap(QPixmap(path).scaled(1920, 1080, Qt.AspectRatioMode.KeepAspectRatioByExpanding))
+
+        self.wait_timer_item = CircularTimerItem(self.wait_time_file_closed, diameter=240)
+        self.scene.addItem(self.wait_timer_item)
+        self.wait_timer_item.hide()
+        self.wait_timer_item.setPos(1920 - self.wait_timer_item.diameter - 450,
+                                    1080 - self.wait_timer_item.diameter - 120)
 
         self.btn_open = QPushButton("Mappe öffnen")
         self.btn_open.setFixedSize(300, 80)
         self.btn_open.setStyleSheet(
             "QPushButton { background-color: #3d2b1f; color: #f4e4bc; border: 3px solid #f4e4bc; border-radius: 15px; font-family: 'Graduate'; font-size: 24px; font-weight: bold; } QPushButton:hover { background-color: #5a4030; }")
-        self.btn_open.clicked.connect(self.start_animation)
+        self.btn_open.clicked.connect(self.show_animation_with_timer)
         proxy = self.scene.addWidget(self.btn_open)
-        proxy.setPos(1350, 850)
+        proxy.setPos(50, 50)
 
-    def start_animation(self, checked=False, video_path="pictures/Akte_Animation.mp4", end_callback=None):
+    def show_animation_with_timer(self):
+        self._start_wait_timer()
+
+    def _start_wait_timer(self):
+        if self.developer_mode:
+            self.start_animation()
+            return
+        duration = max(1, int(self.wait_time_file_closed))
+        self._wait_duration_s = duration
+        self._wait_start_time = time.perf_counter()
+        if self.wait_timer_item is None:
+            return
+        self.wait_timer_item.set_progress(0.0, duration)
+        self.wait_timer_item.show()
+        if hasattr(self, "btn_open"):
+            self.btn_open.setEnabled(False)
+        self.wait_timer.start(33)
+
+    def _update_wait_timer(self):
+        if self._wait_start_time is None:
+            return
+        elapsed = time.perf_counter() - self._wait_start_time
+        remaining = max(0.0, self._wait_duration_s - elapsed)
+        progress = min(1.0, elapsed / float(self._wait_duration_s))
+        if self.wait_timer_item is not None:
+            self.wait_timer_item.set_progress(progress, remaining)
+        if remaining <= 0:
+            self.wait_timer.stop()
+            if self.wait_timer_item is not None:
+                self.wait_timer_item.hide()
+            if hasattr(self, "btn_open"):
+                self.btn_open.setEnabled(True)
+            self.start_animation()
+
+    def start_animation(self, checked=False, video_path="pictures/Akte_animation.mov", end_callback=None):
         # Support calls from QPushButton.clicked (passes a bool) and direct path calls.
         if isinstance(checked, (str, os.PathLike)):
             video_path = checked
@@ -639,6 +752,7 @@ class ScalingAkteGUI(QGraphicsView):
         config.setdefault("wait_time_file_closed", 3)
         config.setdefault("animation_speed", 1)
         config.setdefault("fullscreen", True)
+        config.setdefault("developer_mode", False)
 
         pipeline = config.setdefault("pipeline", [])
         if not isinstance(pipeline, list):
@@ -708,6 +822,7 @@ class ScalingAkteGUI(QGraphicsView):
         self.admin_menu.wait_time_changed.connect(self._on_wait_time_changed)
         self.admin_menu.animation_speed_changed.connect(self._on_animation_speed_changed)
         self.admin_menu.fullscreen_toggled.connect(self._on_fullscreen_toggled)
+        self.admin_menu.developer_mode_toggled.connect(self._on_developer_mode_toggled)
         self.admin_menu.moondream_enabled_changed.connect(self._on_moondream_enabled)
         self.admin_menu.moondream_prompt_changed.connect(self._on_moondream_prompt)
         self.admin_menu.deepface_enabled_changed.connect(self._on_deepface_enabled)
@@ -721,6 +836,7 @@ class ScalingAkteGUI(QGraphicsView):
             "wait_time_file_closed": self.config.get("wait_time_file_closed", 3),
             "animation_speed": self.config.get("animation_speed", 1),
             "fullscreen": self.config.get("fullscreen", True),
+            "developer_mode": self.config.get("developer_mode", False),
             "moondream_enabled": moondream.get("enabled", True),
             "moondream_prompt": moondream.get("prompt", ""),
             "deepface_enabled": deepface.get("enabled", False),
@@ -739,6 +855,10 @@ class ScalingAkteGUI(QGraphicsView):
     def _on_fullscreen_toggled(self, enabled):
         self._set_fullscreen(bool(enabled))
         self._update_config_value("fullscreen", bool(enabled))
+
+    def _on_developer_mode_toggled(self, enabled):
+        self.developer_mode = bool(enabled)
+        self._update_config_value("developer_mode", self.developer_mode)
 
     def _on_moondream_enabled(self, enabled):
         self._update_pipeline_value("moondream", "enabled", bool(enabled))
@@ -796,7 +916,7 @@ class ScalingAkteGUI(QGraphicsView):
 
     def reset_logic(self):
         QTimer.singleShot(0, lambda: self.start_animation(
-            "pictures/Akte_Animation_reverse.mp4",
+            "pictures/Akte_animation_reverse.mov",
             end_callback=self.show_closed_folder
         ))
 

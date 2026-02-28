@@ -1,6 +1,7 @@
 language: de
-wait_time_file_closed: 18
-animation_speed: 1
+developer_mode: false
+wait_time_file_closed: 3
+animation_speed: 10
 fullscreen: true
 pipeline:
 - id: moondream
@@ -9,7 +10,8 @@ pipeline:
   watch_dir: ./final
   file_ext: .yaml
   show_preview: true
-  prompt: Name the clothing and any accessories the person is wearing
+  prompt: Name the clothing and any accessories the person is wearing and tell a imagined
+    crime story to the person
 - id: deepface
   name: Emotionserkennung
   enabled: true
