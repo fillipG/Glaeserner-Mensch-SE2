@@ -18,6 +18,7 @@ services:
       - ./models_cache:/root/.u2net 
     environment:
       - PYTHONUNBUFFERED=1
+    restart: unless-stopped
     deploy:
       resources:
         reservations:

@@ -8,3 +8,4 @@ services:
       - ../final:/app/final
     environment:
       - PYTHONUNBUFFERED=1
+    restart: unless-stopped
