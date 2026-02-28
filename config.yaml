@@ -1,22 +1,22 @@
 language: de
 wait_time_file_closed: 18
-animation_speed: 1
+animation_speed: 20
 fullscreen: true
 pipeline:
 - id: moondream
   name: Visual Description (VLM)
   enabled: true
-  watch_dir: ./final
+  watch_dir: ./General ordner/final
   file_ext: .yaml
   show_preview: true
   prompt: Name the clothing and any accessories the person is wearing
 - id: deepface
   name: Emotionserkennung
   enabled: true
-  watch_dir: ./final
+  watch_dir: ./General ordner/final
   file_ext: .yaml
 - id: fer
   name: Emotionserkennung (FER)
-  enabled: true
-  watch_dir: ./final
+  enabled: false
+  watch_dir: ./General ordner/final
   file_ext: .yaml

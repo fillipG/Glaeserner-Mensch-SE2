@@ -1,7 +1,6 @@
-# pip install ultralytics opencv-python rembg pillow
 import cv2
 from ultralytics import YOLO
-from rembg import remove
+from rembg import remove, new_session
 from PIL import Image
 import os
 import time
@@ -11,8 +10,13 @@ INPUT_DIR = "main_image"
 confidence = 0.7  # Ab welcher Konfidenz ein Gesicht erkannt wird
 padding = 40     # Zusätzlicher Rand, verbessert das entfernen des Hintergrunds.
 
-# YOLO-Modell laden (einmalig, außerhalb der Schleife)
-model = YOLO("yolov8n-face.pt")  # Yolo-face Modell
+# 1. YOLO-Modell laden (einmalig, außerhalb der Schleife)
+model = YOLO("yolov8n-face.pt")
+model.to('cuda')
+
+# 2. Session für GPU erstellen
+# Falls keine GPU gefunden wird, nutzt es automatisch die CPU.
+rembg_session = new_session("u2net")
 
 print("Warte auf Bilder im Ordner 'main_image'... ")
 
@@ -32,7 +36,7 @@ while True:
         image = cv2.imread(image_path)
 
         # Gesichter erkennen
-        results = model(image, conf=confidence)
+        results = model(image, conf=confidence, device='cuda')
 
         # Für jedes erkannte Gesicht
         face_nr = 1
@@ -57,7 +61,7 @@ while True:
                 face_pil = Image.fromarray(face_rgb)
 
                 # Hintergrund entfernen
-                face_no_bg = remove(face_pil)
+                face_no_bg = remove(face_pil, session=rembg_session)
 
                 # Speichern
                 face_no_bg.save(f"faces_yolo/face{face_nr}.png")

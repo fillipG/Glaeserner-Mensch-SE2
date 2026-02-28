@@ -526,7 +526,7 @@ class ScalingAkteGUI(QGraphicsView):
         proxy = self.scene.addWidget(self.btn_open)
         proxy.setPos(1350, 850)
 
-    def start_animation(self, checked=False, video_path="pictures/Akte_Animation.mp4", end_callback=None):
+    def start_animation(self, checked=False, video_path="pictures/Akte_oeffnet.mov", end_callback=None):
         # Support calls from QPushButton.clicked (passes a bool) and direct path calls.
         if isinstance(checked, (str, os.PathLike)):
             video_path = checked

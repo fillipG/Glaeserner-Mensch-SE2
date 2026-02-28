@@ -18,3 +18,10 @@ services:
       - ./models_cache:/root/.u2net 
     environment:
       - PYTHONUNBUFFERED=1
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [ gpu ]

@@ -108,32 +108,45 @@ class PipelineManager(QObject):
         """Führt alle Modellergebnisse zusammen, übersetzt sie ggf. und sendet sie an die GUI."""
         final_results = {}
 
-        print(f"\n[COMPLETE ANALYSIS] {base_id.upper()}")
+        print(f"\n[START ANALYSIS] ID: {base_id.upper()}")
         print("=" * 60)
 
-        for m_id in self.required_ids:
-            model_data = self.results_cache[base_id][m_id]
+        captured_data = self.results_cache.get(base_id, {})
 
-            prompt = model_data.get("prompt", "N/A")
-            content = model_data.get("description", "No description found")
+        for m_id in self.required_ids:
+            model_data = captured_data.get(m_id, {})
+
+            # Dynamische Feld-Extraktion
+            if m_id == "deepface":
+                emotion = model_data.get("Emotion", "N/A")
+                alter = model_data.get("Alter", "N/A")
+                geschlecht = model_data.get("Geschlecht", "N/A")
+                content = f"Emotion: {emotion}, Alter: {alter}, Geschlecht: {geschlecht}"
+            else:
+                content = model_data.get("description", "No description found")
 
             # Lokalisierung (Übersetzung)
             if self.translator and self.target_lang == "de":
-                content = self.translator.translate_text(content)
+                # Deepface Felder sind bereits Deutsch, daher nur Moondream übersetzen
+                if m_id != "deepface":
+                    content = self.translator.translate_text(content)
 
-            # Für das GUI-Signal speichern
             final_results[m_id] = content
 
-            # Konsolenausgabe
-            print(f"MODEL:  {m_id.upper()}")
-            print(f"PROMPT: {prompt}")
-            print(f"RESULT: {content}")
+            # Konsolenausgabe für das einzelne Modell
+            print(f"  > MODEL:  {m_id.upper()}")
+            print(f"    RESULT: {content}")
             print("-" * 30)
 
+        # --- ABSCHLUSS-MELDUNG ---
+        import datetime
+        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+
+        print(f"DONE: Analysis for {base_id.upper()} completed at {timestamp}.")
         print("=" * 60 + "\n")
 
         # Daten per Signal an die GUI senden
         self.data_finalized.emit(base_id, final_results)
 
-        # Cache für diese ID leeren, damit sie bei neuem Input frisch starten kann
+        # Cache leeren
         del self.results_cache[base_id]
