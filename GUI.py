@@ -608,7 +608,6 @@ class ScalingAkteGUI(QGraphicsView):
     def show_animation_with_timer(self):
         self._start_wait_timer()
 
-    def start_animation(self, checked=False, video_path="pictures/Akte_oeffnet.mov", end_callback=None):
     def _start_wait_timer(self):
         if self.developer_mode:
             self.start_animation()
