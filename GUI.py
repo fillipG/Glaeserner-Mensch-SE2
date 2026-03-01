@@ -145,6 +145,31 @@ class LoadingSpinnerItem(QGraphicsObject):
         span_angle = int(-270 * 16)
         painter.drawArc(rect, start_angle, span_angle)
 
+
+class ResetCountdownItem(QGraphicsObject):
+    """Einfacher Countdown-Text ohne zusaetzliche Animation."""
+    def __init__(self, diameter=80, color=QColor(80, 160, 255, 230), parent=None):
+        super().__init__(parent)
+        self.diameter = int(diameter)
+        self.remaining = 0
+        self._color = color
+        self.setZValue(210)
+
+    def boundingRect(self):
+        return QRectF(0, 0, self.diameter, self.diameter)
+
+    def set_remaining(self, remaining):
+        self.remaining = int(max(0, remaining))
+        self.update()
+
+    def paint(self, painter, option, widget=None):
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        rect = self.boundingRect()
+        font_size = max(12, int(self.diameter * 0.45))
+        painter.setFont(QFont("Graduate", font_size, QFont.Weight.Bold))
+        painter.setPen(self._color)
+        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, f"{self.remaining}")
+
 # --- ADMIN MENÜ ---
 class AdminMenu(QFrame):
     """Admin-Menue mit Anzeige- und Slider-Elementen."""
@@ -539,9 +564,11 @@ class ScalingAkteGUI(QGraphicsView):
         self._reset_button_pixmap_path = "pictures/reset_button.png"
         self._reset_button_empty_path = "pictures/reset_button_empty.png"
         self._reset_button_original_pixmap = None
+        self._reset_countdown_item = None
 
         self.config = self._load_config()
         self.wait_time_file_closed = int(self.config.get("wait_time_file_closed", 3))
+        self.reset_countdown_seconds = int(self.config.get("reset_countdown_seconds", 3))
         self.animation_speed = int(self.config.get("animation_speed", 1))
         self.is_fullscreen = bool(self.config.get("fullscreen", True))
         self.developer_mode = bool(self.config.get("developer_mode", False))
@@ -554,6 +581,10 @@ class ScalingAkteGUI(QGraphicsView):
         self.wait_timer_item = None
         self._wait_start_time = None
         self._wait_duration_s = 0
+
+        self._reset_countdown_timer = QTimer(self)
+        self._reset_countdown_timer.timeout.connect(self._update_reset_countdown)
+        self._reset_countdown_remaining = 0
 
         # Timer für das Scannen des "final" Ordners
         self.scan_timer = QTimer(self)
@@ -927,7 +958,7 @@ class ScalingAkteGUI(QGraphicsView):
     def _ensure_config_defaults(self, config):
         config.setdefault("language", "de")
         config.setdefault("wait_time_file_closed", 3)
-        config.setdefault("animation_speed", 1)
+        config.setdefault("reset_countdown_seconds", 3)
         config.setdefault("fullscreen", True)
         config.setdefault("developer_mode", False)
 
@@ -1092,10 +1123,76 @@ class ScalingAkteGUI(QGraphicsView):
         self._refresh_descriptions_for_language()
 
     def reset_logic(self):
+        if self._start_reset_countdown():
+            return
         QTimer.singleShot(0, lambda: self.start_animation(
             "pictures/Akte_animation_reverse.mov",
             end_callback=self.show_closed_folder
         ))
+
+    def _start_reset_countdown(self):
+        if not self._is_open or not hasattr(self, "btn_reset"):
+            return False
+        if self._reset_countdown_timer.isActive():
+            return True
+        self._set_reset_button_empty(True)
+        seconds = max(1, int(self.reset_countdown_seconds))
+        self._reset_countdown_remaining = seconds
+
+        if self._reset_countdown_item is not None:
+            self.scene.removeItem(self._reset_countdown_item)
+            self._reset_countdown_item = None
+
+        button_rect = self.btn_reset.boundingRect()
+        diameter = max(30, int(min(button_rect.width(), button_rect.height()) * 0.7))
+        self._reset_countdown_item = ResetCountdownItem(diameter=diameter)
+        self.scene.addItem(self._reset_countdown_item)
+        btn_pos = self.btn_reset.pos()
+        self._reset_countdown_item.setPos(
+            btn_pos.x() + (button_rect.width() - diameter) / 2,
+            btn_pos.y() + (button_rect.height() - diameter) / 2,
+        )
+        self._reset_countdown_item.set_remaining(self._reset_countdown_remaining)
+        self._reset_countdown_timer.start(1000)
+        return True
+
+    def _update_reset_countdown(self):
+        self._reset_countdown_remaining -= 1
+        if self._reset_countdown_item is not None:
+            self._reset_countdown_item.set_remaining(self._reset_countdown_remaining)
+        if self._reset_countdown_remaining <= 0:
+            self._reset_countdown_timer.stop()
+            self._clear_reset_countdown()
+            QTimer.singleShot(0, lambda: self.start_animation(
+                "pictures/Akte_animation_reverse.mov",
+                end_callback=self.show_closed_folder
+            ))
+
+    def _clear_reset_countdown(self):
+        if self._reset_countdown_item is not None:
+            self.scene.removeItem(self._reset_countdown_item)
+            self._reset_countdown_item = None
+        self._set_reset_button_empty(False)
+
+    def _set_reset_button_empty(self, is_empty):
+        if not hasattr(self, "btn_reset"):
+            return
+        if is_empty:
+            if self._reset_button_original_pixmap is None:
+                self._reset_button_original_pixmap = self.btn_reset.current_pixmap
+            if os.path.exists(self._reset_button_empty_path):
+                empty = QPixmap(self._reset_button_empty_path)
+                self.btn_reset.pixmap1 = empty
+                self.btn_reset.pixmap2 = empty
+                self.btn_reset.current_pixmap = empty
+                self.btn_reset.update()
+        else:
+            if self._reset_button_original_pixmap is not None:
+                self.btn_reset.pixmap1 = self._reset_button_original_pixmap
+                self.btn_reset.pixmap2 = self._reset_button_original_pixmap
+                self.btn_reset.current_pixmap = self._reset_button_original_pixmap
+                self.btn_reset.update()
+            self._reset_button_original_pixmap = None
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_E:
