@@ -3,6 +3,7 @@ developer_mode: false
 wait_time_file_closed: 3
 animation_speed: 20
 fullscreen: true
+photo_delay: 3  
 pipeline:
 - id: moondream
   name: Visual Description (VLM)

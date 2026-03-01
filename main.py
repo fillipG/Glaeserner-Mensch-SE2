@@ -43,7 +43,11 @@ class YOLOWorker(QThread):
         os.makedirs("main_image", exist_ok=True)
         print("--- YOLO Worker: ACTIVE ---")
         try:
-            photo_capture = PersonPhotoCapture(save_dir="main_image", photo_delay=3)  # Foto aufnehmen mit PersonPhotoCapture
+            import yaml
+            with open("config.yaml", "r") as f:
+                cfg = yaml.safe_load(f) or {}
+            photo_delay = int(cfg.get("photo_delay") or 5)  # Standardwert 3 Sekunden
+            photo_capture = PersonPhotoCapture(save_dir="main_image", photo_delay=photo_delay)  # Foto aufnehmen mit PersonPhotoCapture
             photo_capture.frame_callback = lambda frame: self.frame_ready.emit(frame)
 
             while not self.isInterruptionRequested():
