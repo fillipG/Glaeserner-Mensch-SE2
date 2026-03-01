@@ -726,7 +726,7 @@ class ScalingAkteGUI(QGraphicsView):
         for i, pos in enumerate(pos_list):
             if i < len(PERSONEN_DATEN):
                 container = PersonContainer(PERSONEN_DATEN[i], i, self.current_language)
-                image_path = os.path.join("General ordner/faces_yolo", f"face{i + 1}.jpg")
+                image_path = os.path.join("General ordner/faces_yolo", f"face{i + 1}.png")
                 if os.path.exists(image_path):
                     sketch_img = create_advanced_sketch(image_path)
                     container.set_sketch_image(sketch_img)
