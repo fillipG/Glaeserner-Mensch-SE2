@@ -111,6 +111,40 @@ class CircularTimerItem(QGraphicsObject):
         painter.setFont(font)
         painter.drawText(self.boundingRect(), Qt.AlignmentFlag.AlignCenter, f"{self.remaining_s}s")
 
+class LoadingSpinnerItem(QGraphicsObject):
+    """Einfacher, typischer Lade-Spinner (animierter Kreisbogen)."""
+    def __init__(self, diameter=120, color=QColor(244, 228, 188, 230), direction=1, parent=None):
+        super().__init__(parent)
+        self.diameter = int(diameter)
+        self._angle = 0
+        self._color = color
+        self._direction = 1 if direction >= 0 else -1
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._tick)
+        self._timer.start(16)
+        self.setZValue(200)
+
+    def boundingRect(self):
+        return QRectF(0, 0, self.diameter, self.diameter)
+
+    def _tick(self):
+        self._angle = (self._angle + (8 * self._direction)) % 360
+        self.update()
+
+    def stop(self):
+        if self._timer.isActive():
+            self._timer.stop()
+
+    def paint(self, painter, option, widget=None):
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        rect = self.boundingRect().adjusted(10, 10, -10, -10)
+        pen = QPen(self._color, 14)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(pen)
+        start_angle = int(self._angle * 16)
+        span_angle = int(-270 * 16)
+        painter.drawArc(rect, start_angle, span_angle)
+
 # --- ADMIN MENÜ ---
 class AdminMenu(QFrame):
     """Admin-Menue mit Anzeige- und Slider-Elementen."""
@@ -500,6 +534,12 @@ class ScalingAkteGUI(QGraphicsView):
         self.is_animating = False
         self._is_open = False
         self.person_data = list(PERSONEN_DATEN)
+        self.loading_item = None
+        self.loading_active = False
+        self._reset_button_pixmap_path = "pictures/reset_button.png"
+        self._reset_button_empty_path = "pictures/reset_button_empty.png"
+        self._reset_button_original_pixmap = None
+
         self.config = self._load_config()
         self.wait_time_file_closed = int(self.config.get("wait_time_file_closed", 3))
         self.animation_speed = int(self.config.get("animation_speed", 1))
@@ -543,9 +583,72 @@ class ScalingAkteGUI(QGraphicsView):
                 data = []
         return data[:4]
 
+    def show_loading_indicator(self):
+        """Zeigt ein Lade-Symbol je nach GUI-Zustand an und tauscht den Reset-Button aus."""
+        self.loading_active = True
+        if self.loading_item is not None:
+            if hasattr(self.loading_item, "stop"):
+                self.loading_item.stop()
+            self.loading_item.hide()
+            self.scene.removeItem(self.loading_item)
+            self.loading_item = None
+
+        if self._is_open and hasattr(self, "btn_reset"):
+            self._set_reset_button_loading(True)
+            button_rect = self.btn_reset.boundingRect()
+            diameter = max(30, int(min(button_rect.width(), button_rect.height()) * 0.7))
+            self.loading_item = LoadingSpinnerItem(
+                diameter=diameter,
+                color=QColor(80, 160, 255, 230),
+                direction=-1,
+            )
+            self.scene.addItem(self.loading_item)
+            btn_pos = self.btn_reset.pos()
+            self.loading_item.setPos(
+                btn_pos.x() + (button_rect.width() - diameter) / 2,
+                btn_pos.y() + (button_rect.height() - diameter) / 2,
+            )
+        else:
+            diameter = 240
+            self.loading_item = LoadingSpinnerItem(diameter=diameter)
+            self.scene.addItem(self.loading_item)
+            self.loading_item.setPos(1920 - diameter - 450, 1080 - diameter - 120)
+
+    def hide_loading_indicator(self):
+        """Beendet das Ladesymbol und stellt den Reset-Button wieder her."""
+        self.loading_active = False
+        if self.loading_item is not None:
+            if hasattr(self.loading_item, "stop"):
+                self.loading_item.stop()
+            self.loading_item.hide()
+            self.scene.removeItem(self.loading_item)
+            self.loading_item = None
+        self._set_reset_button_loading(False)
+
+    def _set_reset_button_loading(self, is_loading):
+        if not hasattr(self, "btn_reset"):
+            return
+        if is_loading:
+            if self._reset_button_original_pixmap is None:
+                self._reset_button_original_pixmap = self.btn_reset.current_pixmap
+            if os.path.exists(self._reset_button_empty_path):
+                empty = QPixmap(self._reset_button_empty_path)
+                self.btn_reset.pixmap1 = empty
+                self.btn_reset.pixmap2 = empty
+                self.btn_reset.current_pixmap = empty
+                self.btn_reset.update()
+        else:
+            if self._reset_button_original_pixmap is not None:
+                self.btn_reset.pixmap1 = self._reset_button_original_pixmap
+                self.btn_reset.pixmap2 = self._reset_button_original_pixmap
+                self.btn_reset.current_pixmap = self._reset_button_original_pixmap
+                self.btn_reset.update()
+            self._reset_button_original_pixmap = None
+
     def handle_new_dataset(self, personen_daten):
         """Main-Controller: verarbeitet neue Datensaetze (inkl. Beschreibung) und steuert die Anzeige."""
         self.person_data = self._normalize_person_data(personen_daten)
+        self.show_loading_indicator()
         if self.is_animating:
             self._animation_end_callback = self.show_open_folder
             return
@@ -706,6 +809,7 @@ class ScalingAkteGUI(QGraphicsView):
         if isinstance(checked, (str, os.PathLike)):
             video_path = checked
             checked = False
+        self.hide_loading_indicator()
         if not os.path.exists(video_path):
             (end_callback or self.show_open_folder)()
             return
@@ -793,7 +897,7 @@ class ScalingAkteGUI(QGraphicsView):
             self.btn_language.update()
         self.btn_language.clicked.connect(self.switch_language_logic)
 
-        self.btn_reset = AnimatedGraphicsButton("pictures/reset_button.png", scale=button_scale)
+        self.btn_reset = AnimatedGraphicsButton(self._reset_button_pixmap_path, scale=button_scale)
         w2 = self.btn_reset.pixmap1.width() * button_scale
         self.btn_reset.setPos(1920 - right_margin - w2, top_margin + vertical_gap)
         self.btn_reset.setZValue(100)
@@ -1012,6 +1116,11 @@ class ScalingAkteGUI(QGraphicsView):
                 {"titel": "PERSON 2", "geschlecht": "Weiblich", "augen": "Blau", "stimmung": "Beunruhigt", "alter": "27", "gefahr": "MITTEL", "beschreibung": "Testbeschreibung Person 2."},
             ]
             self.handle_new_dataset(neue_personen_liste)
+        if event.key() == Qt.Key.Key_L:
+            if self.loading_active:
+                self.hide_loading_indicator()
+            else:
+                self.show_loading_indicator()
         super().keyPressEvent(event)
 
     def resizeEvent(self, event):
