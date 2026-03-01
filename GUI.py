@@ -720,6 +720,10 @@ class ScalingAkteGUI(QGraphicsView):
         for container in self.active_containers:
             container.trigger_typing()
 
+    def show_flip_video(self):
+        """Spielt das Umblättern-Video ab und kehrt danach zur offenen Mappe zurück."""
+        self.start_animation("pictures/Akte_umblaettern.mov", end_callback=self.show_open_folder)
+
     def setup_ui_elements(self):
         self.active_containers = []
         pos_list = [(230, 80), (1000, 80), (230, 560), (1000, 560)]
@@ -962,6 +966,8 @@ class ScalingAkteGUI(QGraphicsView):
                 self.admin_menu.update_geometry(self.size())
                 self.admin_menu.show()
                 self.admin_menu.raise_()
+        if event.key() == Qt.Key.Key_U:
+            self.show_flip_video()
         super().keyPressEvent(event)
 
     def resizeEvent(self, event):
