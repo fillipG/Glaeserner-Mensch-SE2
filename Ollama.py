@@ -1,7 +1,11 @@
+# zur verwendung Ollama installieren. Entweder über die offizielle Webseite (https://ollama.com/) oder über den PS-Befehl: "irm https://ollama.com/install.ps1 | iex"
+# nach installation PyCharm neu starten und in das projekt pullen (ollama pull llama3.2:1b)
+# ollama bibliothek installieren: pip install ollama
+
 import ollama
 
 
-def generate_ai_response(prompt, model="llama3"):
+def generate_ai_response(prompt, model="llama3.2:1b"):
     """
     Sendet einen Prompt an die lokale Ollama-Instanz und gibt die Antwort zurück.
 
@@ -30,10 +34,10 @@ def generate_ai_response(prompt, model="llama3"):
 
 # --- Beispiel für die Nutzung ---
 if __name__ == "__main__":
-    my_prompt = "Schreibe einen Kriminalbericht über eine fiktive Person. Die ausgabe soll nicht mehr als 300 Zeichen haben"
+    my_prompt = "Schreibe einen Kriminalbericht über eine fiktive Person. die Personenbeschreibung ist bereits erfolgt. Schreibe nur, was die person verbrochen haben könnte in einem Fließtext. BEachte dabei, dass es sich um ein Verbrechen in der Stasi handelt. Die ausgabe soll nicht mehr als 50 Wörter haben. Antworte möglichst kurz und versuche etwas lustiges in die story einzubauen. Die story muss nicht erklärt sein. Es reicht einfach nur ein Verbrechen darzustellen"
 
     print("KI denkt nach...")
-    story = generate_ai_response(my_prompt, model="llama3")  # Ändere 'llama3' zu deinem installierten Modell
+    story = generate_ai_response(my_prompt, model="llama3.2:1b")
 
     print("\n--- Generierte Story ---")
     print(story)
