@@ -366,6 +366,7 @@ class PersonContainer(QFrame):
         self.index = index
         self.language = language
         self._last_description_source = None
+        self._last_deepface_source = None
         self.setFixedSize(680, 400)
         self.setStyleSheet("background: transparent; border: none; color: #1a1a1a;")
         main_layout = QVBoxLayout(self)
@@ -476,6 +477,16 @@ class PersonContainer(QFrame):
         for tw in self.typewriters:
             tw.start_typing()
 
+    def update_stats_from_deepface(self, emotion=None, age=None, gender=None):
+        if emotion:
+            self.daten["stimmung"] = str(emotion)
+        if age:
+            self.daten["alter"] = str(age)
+        if gender:
+            self.daten["geschlecht"] = str(gender)
+        self.stats_label.full_text = self._build_stats_text(self.language)
+        self.stats_label.start_typing()
+
 # --- HAUPT GUI ---
 class ScalingAkteGUI(QGraphicsView):
     """Haupt-GUI inklusive Spracheinstellung per config.yaml."""
@@ -520,7 +531,7 @@ class ScalingAkteGUI(QGraphicsView):
 
     def update_descriptions_from_files(self):
         """Scannt den 'final' Ordner und extrahiert die (ggf. mehrzeilige) 'description'."""
-        folder_path = "final"
+        folder_path = "General ordner/final"
         if not os.path.exists(folder_path):
             return
 
@@ -573,13 +584,35 @@ class ScalingAkteGUI(QGraphicsView):
                     container.beschreibung.full_text = translated_text
                     container.beschreibung.start_typing()
 
+            deepface_name = f"face{i + 1}_deepface.yaml"
+            deepface_path = os.path.join(folder_path, deepface_name)
+            if os.path.exists(deepface_path):
+                try:
+                    with open(deepface_path, "r", encoding="utf-8") as f:
+                        deepface_data = yaml.safe_load(f) or {}
+                except Exception:
+                    deepface_data = {}
+
+                emotion = deepface_data.get("Emotion") or deepface_data.get("emotion")
+                age = deepface_data.get("Alter") or deepface_data.get("alter")
+                gender = deepface_data.get("Geschlecht") or deepface_data.get("geschlecht")
+                deepface_signature = (emotion, age, gender)
+
+                if deepface_signature != container._last_deepface_source and any(deepface_signature):
+                    container._last_deepface_source = deepface_signature
+                    container.update_stats_from_deepface(emotion=emotion, age=age, gender=gender)
+
     def _refresh_descriptions_for_language(self):
+        if not self.active_containers:
+            return
         for container in self.active_containers:
-            if container._last_description_source:
-                translated_text = self.translator.translate_text(container._last_description_source)
-                if container.beschreibung.full_text != translated_text:
-                    container.beschreibung.full_text = translated_text
-                    container.beschreibung.start_typing()
+            source_text = container._last_description_source
+            if not source_text:
+                continue
+            translated = self.translator.translate_text(source_text) if self.translator else source_text
+            if container.beschreibung.full_text != translated:
+                container.beschreibung.full_text = translated
+                container.beschreibung.start_typing()
 
     def show_closed_folder(self):
         self.scene.clear()
