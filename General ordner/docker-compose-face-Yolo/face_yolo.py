@@ -4,9 +4,11 @@ from rembg import remove, new_session
 from PIL import Image
 import os
 import time
+import yaml
 
 # Einstellungen
 INPUT_DIR = "main_image"
+YAML_PATH = "General ordner/final/faces_log.yaml"  # Pfad zur YAML-Datei
 confidence = 0.7  # Ab welcher Konfidenz ein Gesicht erkannt wird
 padding = 40     # Zusätzlicher Rand, verbessert das entfernen des Hintergrunds.
 
@@ -37,6 +39,15 @@ while True:
 
         # Gesichter erkennen
         results = model(image, conf=confidence, device='cuda')
+
+        # Anzahl erkannter Gesichter über YOLO
+        face_count = len(results[0].boxes)
+        print(f"  Erkannte Gesichter: {face_count}")
+
+        # In YAML schreiben
+        with open(YAML_PATH, "w") as f:
+            yaml.dump({"face_count": face_count}, f)
+
 
         # Für jedes erkannte Gesicht
         face_nr = 1
