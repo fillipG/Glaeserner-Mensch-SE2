@@ -498,6 +498,8 @@ class ScalingAkteGUI(QGraphicsView):
         self.video_cap = None
         self.video_item = None
         self.is_animating = False
+        self._is_open = False
+        self.person_data = list(PERSONEN_DATEN)
         self.config = self._load_config()
         self.wait_time_file_closed = int(self.config.get("wait_time_file_closed", 3))
         self.animation_speed = int(self.config.get("animation_speed", 1))
@@ -529,6 +531,29 @@ class ScalingAkteGUI(QGraphicsView):
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setFrameShape(QFrame.Shape.NoFrame)
 
+    def _normalize_person_data(self, personen_daten):
+        if personen_daten is None:
+            return []
+        if isinstance(personen_daten, list):
+            data = personen_daten
+        else:
+            try:
+                data = list(personen_daten)
+            except TypeError:
+                data = []
+        return data[:4]
+
+    def handle_new_dataset(self, personen_daten):
+        """Main-Controller: verarbeitet neue Datensaetze (inkl. Beschreibung) und steuert die Anzeige."""
+        self.person_data = self._normalize_person_data(personen_daten)
+        if self.is_animating:
+            self._animation_end_callback = self.show_open_folder
+            return
+        if self._is_open:
+            self.show_flip_video()
+        else:
+            self.start_animation()
+
     def update_descriptions_from_files(self):
         """Scannt den 'final' Ordner und extrahiert die (ggf. mehrzeilige) 'description'."""
         folder_path = "General ordner/final"
@@ -539,6 +564,9 @@ class ScalingAkteGUI(QGraphicsView):
             return
 
         for i, container in enumerate(self.active_containers):
+            # Behalte eine per Datensatz gesetzte Beschreibung und ueberschreibe sie nicht.
+            if container._last_description_source:
+                continue
             file_name = f"face{i + 1}_moondream.yaml"
             file_path = os.path.join(folder_path, file_name)
 
@@ -615,6 +643,7 @@ class ScalingAkteGUI(QGraphicsView):
                 container.beschreibung.start_typing()
 
     def show_closed_folder(self):
+        self._is_open = False
         self.scene.clear()
         self.active_containers = []  # Reset active containers
         self.is_animating = False
@@ -705,6 +734,7 @@ class ScalingAkteGUI(QGraphicsView):
             QTimer.singleShot(100, self._animation_end_callback)
 
     def show_open_folder(self):
+        self._is_open = True
         self.scene.clear()
         bg = "pictures/Akte_V3.png"
         if os.path.exists(bg):
@@ -728,8 +758,14 @@ class ScalingAkteGUI(QGraphicsView):
         self.active_containers = []
         pos_list = [(230, 80), (1000, 80), (230, 560), (1000, 560)]
         for i, pos in enumerate(pos_list):
-            if i < len(PERSONEN_DATEN):
-                container = PersonContainer(PERSONEN_DATEN[i], i, self.current_language)
+            if i < len(self.person_data):
+                container = PersonContainer(self.person_data[i], i, self.current_language)
+                description = self.person_data[i].get("beschreibung")
+                if description:
+                    container._last_description_source = description
+                    translated = self.translator.translate_text(description) if self.translator else description
+                    container.beschreibung.full_text = translated
+                    container.beschreibung.start_typing()
                 image_path = os.path.join("General ordner/faces_yolo", f"face{i + 1}.png")
                 if os.path.exists(image_path):
                     sketch_img = create_advanced_sketch(image_path)
@@ -967,7 +1003,15 @@ class ScalingAkteGUI(QGraphicsView):
                 self.admin_menu.show()
                 self.admin_menu.raise_()
         if event.key() == Qt.Key.Key_U:
-            self.show_flip_video()
+            neue_personen_liste = [
+                {"titel": "PERSON 1", "geschlecht": "Männlich", "augen": "Braun", "stimmung": "Neutral", "alter": "32",
+                 "gefahr": "GERING", "beschreibung": "Testbeschreibung Person 1."},
+                {"titel": "PERSON 2", "geschlecht": "Weiblich", "augen": "Blau", "stimmung": "Beunruhigt",
+                 "alter": "27", "gefahr": "MITTEL", "beschreibung": "Testbeschreibung Person 2."},
+                {"titel": "PERSON 1", "geschlecht": "Männlich", "augen": "Braun", "stimmung": "Neutral", "alter": "32", "gefahr": "GERING", "beschreibung": "Testbeschreibung Person 1."},
+                {"titel": "PERSON 2", "geschlecht": "Weiblich", "augen": "Blau", "stimmung": "Beunruhigt", "alter": "27", "gefahr": "MITTEL", "beschreibung": "Testbeschreibung Person 2."},
+            ]
+            self.handle_new_dataset(neue_personen_liste)
         super().keyPressEvent(event)
 
     def resizeEvent(self, event):
