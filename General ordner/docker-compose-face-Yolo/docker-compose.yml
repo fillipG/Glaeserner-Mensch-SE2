@@ -10,6 +10,8 @@ services:
       
       # Greift auf den globalen Ordner "main_image" eine Ebene höher zu
       - ../main_image:/app/main_image
+
+      - ../final:/app/final
       
       # Falls die Ergebnisse in den globalen "faces_yolo" Ordner sollen:
       - ../faces_yolo:/app/faces_yolo

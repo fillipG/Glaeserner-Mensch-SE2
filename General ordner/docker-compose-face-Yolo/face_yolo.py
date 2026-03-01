@@ -8,7 +8,7 @@ import yaml
 
 # Einstellungen
 INPUT_DIR = "main_image"
-YAML_PATH = "General ordner/final/faces_log.yaml"  # Pfad zur YAML-Datei
+YAML_PATH = "final/faces_log.yaml"  # Pfad zur YAML-Datei
 confidence = 0.7  # Ab welcher Konfidenz ein Gesicht erkannt wird
 padding = 40     # Zusätzlicher Rand, verbessert das entfernen des Hintergrunds.
 
