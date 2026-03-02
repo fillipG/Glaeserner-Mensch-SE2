@@ -11,7 +11,7 @@ try:
 except ImportError:
     pass
 
-from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtCore import QThread, pyqtSignal, Qt
 from PyQt6.QtWidgets import QApplication
 
 
@@ -72,8 +72,7 @@ Daten an die GUI zu senden.
 """
 class PipelineWorker(QThread):
     # Signal, um Ergebnisse an die GUI zu senden
-    result_ready = pyqtSignal(str, dict)
-
+    result_ready = pyqtSignal(str, list)
     def run(self):
         # Import innerhalb des Threads, um Konflikte beim Start zu vermeiden
         from pipelinemanager import PipelineManager
@@ -126,6 +125,10 @@ def run_app():
     # 2. Pipeline-Worker starten:
     pipeline_thread = PipelineWorker()
 
+    pipeline_thread.result_ready.connect(
+        lambda id, data: window.handle_new_dataset(data),
+        Qt.ConnectionType.QueuedConnection
+    )
     # Referenz am Fenster-Objekt, damit der Python-Garbage-Collector den Thread nicht löscht, während er noch läuft
     window._pipeline = pipeline_thread
 

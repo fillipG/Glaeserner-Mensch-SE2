@@ -15,8 +15,8 @@ Anleitung zur Ausführung im Docker-Container:
     Das Skript läuft automatisch und überwacht den Eingabeordner.
 """
 
-INPUT_DIR = "/app/faces_yolo"     
-PROCESSED_DIR = "/app/final"   
+INPUT_DIR = "/app/deepface_inbox"
+PROCESSED_DIR = "/app/final"
 CONFIG_PATH = "/app/config.yaml"
 
 # Output-Dir anlegen, falls noch nicht vorhanden
@@ -65,6 +65,7 @@ while True:
         sketch_path = os.path.join(PROCESSED_DIR, f"{face_id}_sketch.jpg")
 
         if os.path.exists(yaml_path):
+            os.remove(img_path)
             continue
 
         try:
@@ -96,11 +97,15 @@ while True:
                 f.flush()
                 os.fsync(f.fileno())
 
-
             print(f"Gespeichert: {os.path.basename(yaml_path)}")
+
+            # Datei löschen damit der Loop nicht von vorne beginnt
+            os.remove(img_path)
 
         except Exception as e:
             print(f"DeepFace Fehler bei {filename}: {e}")
+            if os.path.exists(img_path):
+                os.remove(img_path)
 
     # 4. Kurze Pause vor dem nächsten Scan
     time.sleep(1)

@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (QApplication, QGraphicsView, QGraphicsScene,
                              QWidget, QVBoxLayout, QHBoxLayout,
                              QLabel, QFrame, QGraphicsObject, QPushButton, QSlider, QCheckBox, QLineEdit, QScrollArea, QSizePolicy)
 from PyQt6.QtGui import QPixmap, QFont, QColor, QPainter, QImage, QPen
-from PyQt6.QtCore import Qt, pyqtSignal, QRectF, QPropertyAnimation, pyqtProperty, QEasingCurve, QTimer
+from PyQt6.QtCore import Qt, pyqtSignal, QRectF, QPropertyAnimation, pyqtProperty, QEasingCurve, QTimer, pyqtSlot
 from sketch import create_advanced_sketch
 from service import TranslationService
 
@@ -676,13 +676,26 @@ class ScalingAkteGUI(QGraphicsView):
                 self.btn_reset.update()
             self._reset_button_original_pixmap = None
 
+    @pyqtSlot(list)
     def handle_new_dataset(self, personen_daten):
-        """Main-Controller: verarbeitet neue Datensaetze (inkl. Beschreibung) und steuert die Anzeige."""
-        self.person_data = self._normalize_person_data(personen_daten)
-        self.show_loading_indicator()
-        if self.is_animating:
-            self._animation_end_callback = self.show_open_folder
+        """Main-Controller: verarbeitet neue Datensaetze."""
+        # Falls die Liste leer ist, abbrechen
+        if not personen_daten:
             return
+
+        # Normalisiere die Daten
+        self.person_data = self._normalize_person_data(personen_daten)
+
+        # UI-Update sicherstellen
+        self.show_loading_indicator()
+
+        # Falls gerade eine Animation läuft, stoppen wir kurz oder warten
+        if self.is_animating:
+            # Wir schieben den Aufruf um 100ms nach hinten, falls beschäftigt
+            QTimer.singleShot(100, lambda: self.handle_new_dataset(personen_daten))
+            return
+
+        # Starte die Anzeige-Logik
         if self._is_open:
             self.show_flip_video()
         else:
@@ -901,7 +914,7 @@ class ScalingAkteGUI(QGraphicsView):
                     translated = self.translator.translate_text(description) if self.translator else description
                     container.beschreibung.full_text = translated
                     container.beschreibung.start_typing()
-                image_path = os.path.join("General ordner/faces_yolo", f"face{i + 1}.png")
+                image_path = os.path.join("General ordner/sketch", f"face{i + 1}.png")
                 if os.path.exists(image_path):
                     sketch_img = create_advanced_sketch(image_path)
                     container.set_sketch_image(sketch_img)

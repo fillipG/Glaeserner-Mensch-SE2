@@ -12,6 +12,12 @@ services:
       - ../main_image:/app/main_image
 
       - ../final:/app/final
+
+      - ../sketch:/app/sketch
+
+      - ../docker-compose-deepface/deepface_inbox:/app/deepface_inbox
+
+      - ../moondream_ai/moondream_inbox:/app/moondream_inbox
       
       # Falls die Ergebnisse in den globalen "faces_yolo" Ordner sollen:
       - ../faces_yolo:/app/faces_yolo
