@@ -62,7 +62,7 @@ class YOLOWorker(QThread):
 
                 if captured_frame is not None:
                     timestamp = datetime.now().strftime("%d.%m.%Y_%H-%M-%S")
-                    filename = f"General ordner/main_image/main_{timestamp}.jpg"
+                    filename = f"General ordner/main_image/face_trigger.jpg"
                     cv2.imwrite(filename, captured_frame)
                     print(f"Bild gespeichert: {filename}")
 
