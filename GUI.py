@@ -549,6 +549,8 @@ class PersonContainer(QFrame):
 # --- HAUPT GUI ---
 class ScalingAkteGUI(QGraphicsView):
     """Haupt-GUI inklusive Spracheinstellung per config.yaml."""
+    folder_closed = pyqtSignal()  # Wird emittiert wenn closed_folder angezeigt wird -> YOLOWorker fortsetzen
+
     def __init__(self):
         super().__init__()
         self.scene = QGraphicsScene(0, 0, 1920, 1080)
@@ -585,6 +587,7 @@ class ScalingAkteGUI(QGraphicsView):
         self._reset_countdown_timer = QTimer(self)
         self._reset_countdown_timer.timeout.connect(self._update_reset_countdown)
         self._reset_countdown_remaining = 0
+        self.camera_pixmap_item = None
 
         # Timer für das Scannen des "final" Ordners
         self.scan_timer = QTimer(self)
@@ -789,16 +792,63 @@ class ScalingAkteGUI(QGraphicsView):
                 container.beschreibung.full_text = translated
                 container.beschreibung.start_typing()
 
+    def on_camera_frame(self, frame):
+        """Slot – vom YOLOWorker via frame_ready-Signal aufgerufen."""
+        if self.camera_pixmap_item is None:
+            return
+        try:
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            h, w, ch = rgb.shape
+            q_img = QImage(rgb.data, w, h, ch * w, QImage.Format.Format_RGB888).copy()
+            pixmap = QPixmap.fromImage(q_img).scaled(
+                self._cam_display_w, self._cam_display_h,
+                Qt.AspectRatioMode.IgnoreAspectRatio,
+                Qt.TransformationMode.SmoothTransformation
+            )
+            self.camera_pixmap_item.setPixmap(pixmap)
+        except Exception as e:
+            print(f"on_camera_frame Fehler: {e}")
+
     def show_closed_folder(self):
         self._is_open = False
+        # Item auf None setzen BEVOR scene.clear() – on_camera_frame greift sonst auf gelöschtes Objekt zu
+        self.camera_pixmap_item = None
+
         self.scene.clear()
-        self.active_containers = []  # Reset active containers
+        self.active_containers = []
         self.is_animating = False
         if self.wait_timer.isActive():
             self.wait_timer.stop()
         path = "pictures/Akte_V1_Zu.png"
         if os.path.exists(path):
             self.scene.addPixmap(QPixmap(path).scaled(1920, 1080, Qt.AspectRatioMode.KeepAspectRatioByExpanding))
+
+        # --- LIVE KAMERA-FEED ---
+        self._cam_display_w = 800
+        self._cam_display_h = 450
+        cam_x = 20
+        cam_y = (1080 - self._cam_display_h) // 2
+
+        border = self.scene.addRect(cam_x - 3, cam_y - 3, self._cam_display_w + 6, self._cam_display_h + 6)
+        border.setPen(QPen(QColor("#f4e4bc"), 3))
+        border.setZValue(9)
+
+        placeholder = QPixmap(self._cam_display_w, self._cam_display_h)
+        placeholder.fill(QColor("black"))
+        new_item = self.scene.addPixmap(placeholder)
+        new_item.setPos(cam_x, cam_y)
+        new_item.setZValue(10)
+        # singleShot(0): stellt sicher dass ausstehende on_camera_frame-Events zuerst
+        # gegen None laufen, bevor das neue Item aktiv wird
+        QTimer.singleShot(0, lambda: setattr(self, "camera_pixmap_item", new_item))
+
+        cam_label = QLabel("LIVE KAMERA")
+        cam_label.setFont(QFont("Graduate", 14, QFont.Weight.Bold))
+        cam_label.setStyleSheet("color: #f4e4bc; background: transparent;")
+        cam_label_proxy = self.scene.addWidget(cam_label)
+        cam_label_proxy.setPos(cam_x, cam_y - 35)
+        cam_label_proxy.setZValue(11)
+        # --- ENDE KAMERA-FEED ---
 
         self.wait_timer_item = CircularTimerItem(self.wait_time_file_closed, diameter=240)
         self.scene.addItem(self.wait_timer_item)
@@ -814,7 +864,22 @@ class ScalingAkteGUI(QGraphicsView):
         proxy = self.scene.addWidget(self.btn_open)
         proxy.setPos(50, 50)
 
+        # YOLOWorker informieren: Erkennung kann wieder starten
+        self.folder_closed.emit()
+
     def show_animation_with_timer(self):
+        # Ignorieren wenn Mappe bereits offen oder Animation läuft
+        if self.is_animating or self.active_containers:
+            return
+        if self.wait_timer_item is None:
+            self.start_animation()
+            return
+        try:
+            self.wait_timer_item.isVisible()
+        except RuntimeError:
+            self.wait_timer_item = None
+            self.start_animation()
+            return
         self._start_wait_timer()
 
     def _start_wait_timer(self):
@@ -825,6 +890,7 @@ class ScalingAkteGUI(QGraphicsView):
         self._wait_duration_s = duration
         self._wait_start_time = time.perf_counter()
         if self.wait_timer_item is None:
+            self.start_animation()
             return
         self.wait_timer_item.set_progress(0.0, duration)
         self.wait_timer_item.show()
@@ -839,11 +905,17 @@ class ScalingAkteGUI(QGraphicsView):
         remaining = max(0.0, self._wait_duration_s - elapsed)
         progress = min(1.0, elapsed / float(self._wait_duration_s))
         if self.wait_timer_item is not None:
-            self.wait_timer_item.set_progress(progress, remaining)
+            try:
+                self.wait_timer_item.set_progress(progress, remaining)
+            except RuntimeError:
+                self.wait_timer_item = None
         if remaining <= 0:
             self.wait_timer.stop()
             if self.wait_timer_item is not None:
-                self.wait_timer_item.hide()
+                try:
+                    self.wait_timer_item.hide()
+                except RuntimeError:
+                    self.wait_timer_item = None
             if hasattr(self, "btn_open"):
                 self.btn_open.setEnabled(True)
             self.start_animation()

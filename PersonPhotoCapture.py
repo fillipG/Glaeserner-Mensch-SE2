@@ -34,6 +34,9 @@ class PersonPhotoCapture:
         self.PHOTO_DELAY_SECONDS = photo_delay
         self.PERSON_LOST_TOLERANCE = lost_tolerance
 
+        # Optionaler Callback – wird mit jedem Frame aufgerufen (für GUI-Preview)
+        self.frame_callback = None
+
         # Laden des YOLO Pose Modells
         # Das Modell erkennt Körper-Keypoints (Augen, Schultern, etc.)
         print("Lade YOLO Modell...")
@@ -227,8 +230,9 @@ class PersonPhotoCapture:
             # =========================================================
             # COUNTDOWN-LOGIK
             # =========================================================
+            # remaining hier berechnen damit der Callback es unten nutzen kann
+            remaining = 0.0
             if start_time is not None:
-
                 elapsed = current_time - start_time
                 remaining = self.PHOTO_DELAY_SECONDS - elapsed
                 sec_remaining = int(remaining) + 1
@@ -243,8 +247,51 @@ class PersonPhotoCapture:
                     photo_taken = True
                     print(f"[{datetime.now()}] 📸 FOTO AUFGENOMMEN!")
 
+                    # letzten Frame noch an GUI senden
+                    if self.frame_callback is not None:
+                        try:
+                            self.frame_callback(frame)
+                        except Exception:
+                            pass
+
                     cap.release()
                     return frame
+
+            # Frame mit Overlays an GUI weitergeben
+            if self.frame_callback is not None:
+                try:
+                    display = frame.copy()
+                    h_f, w_f = display.shape[:2]
+
+                    if start_time is not None and remaining > 0:
+                        # Countdown-Zahl groß mittig
+                        sec_remaining = int(remaining) + 1
+                        text = str(sec_remaining)
+                        fs, thick = 6.0, 10
+                        (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, fs, thick)
+                        cx = (w_f - tw) // 2
+                        cy = (h_f + th) // 2
+                        cv2.putText(display, text, (cx + 4, cy + 4),
+                                    cv2.FONT_HERSHEY_SIMPLEX, fs, (0, 0, 0), thick + 4, cv2.LINE_AA)
+                        cv2.putText(display, text, (cx, cy),
+                                    cv2.FONT_HERSHEY_SIMPLEX, fs, (30, 200, 255), thick, cv2.LINE_AA)
+
+                    elif not person_valid:
+                        # Hinweistext wenn keine Person erkannt
+                        hint = "Bitte in die Kamera schauen"
+                        fs_h, thick_h = 1.0, 2
+                        (tw_h, th_h), _ = cv2.getTextSize(hint, cv2.FONT_HERSHEY_SIMPLEX, fs_h, thick_h)
+                        tx = (w_f - tw_h) // 2
+                        ty = h_f - 30
+                        # Dunkler Hintergrund für Lesbarkeit
+                        cv2.rectangle(display, (tx - 10, ty - th_h - 8),
+                                      (tx + tw_h + 10, ty + 8), (20, 20, 20), -1)
+                        cv2.putText(display, hint, (tx, ty),
+                                    cv2.FONT_HERSHEY_SIMPLEX, fs_h, (80, 220, 255), thick_h, cv2.LINE_AA)
+
+                    self.frame_callback(display)
+                except Exception:
+                    pass
 
             # Kurze Pause zur CPU-Entlastung
             time.sleep(0.01)

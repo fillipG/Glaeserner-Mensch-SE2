@@ -4,64 +4,75 @@ import time
 from datetime import datetime
 import yaml
 import cv2
-from sympy import true, false
-
 try:
     import torch
 except ImportError:
     pass
 
 from PyQt6.QtCore import QThread, pyqtSignal, Qt
+import threading
+
+from PyQt6.QtCore import QThread, pyqtSignal
 from PyQt6.QtWidgets import QApplication
 
 
 class YOLOWorker(QThread):
+    frame_ready = pyqtSignal(object)
+    photo_done  = pyqtSignal()
+
+    def __init__(self):
+        super().__init__()
+        # Startet als gesetzt (nicht pausiert)
+        self._resume_event = threading.Event()
+        self._resume_event.set()
+
+    def pause(self):
+        """Pausiert die Erkennung nach dem nächsten Foto."""
+        print("YOLO Worker: pausiert")
+        self._resume_event.clear()
+
+    def resume(self):
+        """Setzt die Erkennung fort."""
+        print("YOLO Worker: fortgesetzt")
+        self._resume_event.set()
+
     def run(self):
         # Muss hier importiert werden wegen Konflikten
-        global photo_taken
         from PersonPhotoCapture import PersonPhotoCapture
 
         # Ordner für gespeicherte Bilder erstellen
         os.makedirs("main_image", exist_ok=True)
-
         print("--- YOLO Worker: ACTIVE ---")
         try:
-            # ==========================
-            # Foto aufnehmen mit PersonPhotoCapture
-            # ==========================
-            photo_capture = PersonPhotoCapture(save_dir="main_image", photo_delay=3)
-            photo_taken = False
-            while not self.isInterruptionRequested() and not photo_taken:
+            import yaml
+            with open("config.yaml", "r") as f:
+                cfg = yaml.safe_load(f) or {}
+            photo_delay = int(cfg.get("photo_delay") or 5)  # Standardwert 3 Sekunden
+            photo_capture = PersonPhotoCapture(save_dir="main_image", photo_delay=photo_delay)  # Foto aufnehmen mit PersonPhotoCapture
+            photo_capture.frame_callback = lambda frame: self.frame_ready.emit(frame)
+
+            while not self.isInterruptionRequested():
+                # Warten bis resume() aufgerufen wird (blockiert bis Event gesetzt)
+                self._resume_event.wait()
+
+                if self.isInterruptionRequested():
+                    break
+
                 captured_frame = photo_capture.capture_photo()
-                photo_taken = True
-                # ==========================
-                # Bild speichern
-                # ==========================
-                if captured_frame is not None:  # Prüfen, ob ein Bild aufgenommen wurde
-                    timestamp = datetime.now().strftime("%d.%m.%Y_%H-%M-%S")  # Zeitstempel erzeugen
+
+                if captured_frame is not None:
+                    timestamp = datetime.now().strftime("%d.%m.%Y_%H-%M-%S")
                     filename = f"main_image/main_{timestamp}.jpg"
-                    cv2.imwrite(filename, captured_frame)  # Bild speichern
-                    print(f"Bild gespeichert: {filename}")  # Info ausgeben
+                    cv2.imwrite(filename, captured_frame)
+                    print(f"Bild gespeichert: {filename}")
+
+                    # Erst pausieren, dann Signal senden
+                    self.pause()
+                    self.photo_done.emit()
+
                 time.sleep(0.1)
         except Exception as e:
             print(f"YOLO Thread Error: {e}")
-
-def stream_video():
-    camera = cv2.VideoCapture(0)  # Öffnen der Kamera
-
-    while True:
-        ret, frame = camera.read()  # Aufnehmen
-        if not ret:
-            print("Fehler beim Lesen des Videoframes")
-            break
-
-        cv2.imshow("Live Stream", frame)  # Anzeigen des Videoframes
-
-        if cv2.waitKey(1) & 0xFF == ord('q'):  # Beenden mit 'q'
-            break
-
-    camera.release()
-    cv2.destroyAllWindows()
 
 """
 PIPELINE WORKER KLASSE:
@@ -139,6 +150,13 @@ def run_app():
     # 3. YOLO-Worker starten
     yolo_thread = YOLOWorker()
     window._yolo = yolo_thread
+
+    # Kamera-Frames vom YOLO-Thread direkt an die GUI weitergeben
+    yolo_thread.frame_ready.connect(window.on_camera_frame)
+    # Nach Fotoaufnahme: Mappe automatisch öffnen
+    yolo_thread.photo_done.connect(window.show_animation_with_timer)
+    # Wenn closed_folder wieder angezeigt wird: Erkennung fortsetzen
+    window.folder_closed.connect(yolo_thread.resume)
 
     # Kurze Verzögerung, um Hardware-Konflikte zu vermeiden
     time.sleep(0.5)
