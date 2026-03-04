@@ -48,6 +48,11 @@ def create_advanced_sketch(image_path_or_img, output_path=None):
         cv2.imwrite(str(output_path), sketch)
         print(f"Optimierte Skizze gespeichert unter: {output_path}")
 
+    # 7. Originaldatei loeschen
+    if isinstance(image_path_or_img, (str, os.PathLike)) and os.path.exists(image_path_or_img):
+        os.remove(image_path_or_img)
+        print(f"Originalbild geloescht: {image_path_or_img}")
+
     return sketch
 
 
