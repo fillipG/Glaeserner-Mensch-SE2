@@ -3,21 +3,43 @@
 # ollama bibliothek installieren: pip install ollama
 
 import ollama
+import os
+import yaml
+from google import genai
+import os
 
 
-def generate_ai_response(prompt, model="llama3.2:1b"):
+def _load_llm_model_from_config(default_model="llama3.2:1b"):
+    config_path = "config.yaml"
+    if not os.path.exists(config_path):
+        return default_model
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            config = yaml.safe_load(f) or {}
+    except Exception:
+        return default_model
+    model = (config or {}).get("llm_model")
+    if isinstance(model, str) and model.strip():
+        return model.strip()
+    return default_model
+
+
+def generate_ai_response(prompt, model=None):
     """
-    Sendet einen Prompt an die lokale Ollama-Instanz und gibt die Antwort zurück.
+    Sendet einen Prompt an die lokale Ollama-Instanz und gibt die Antwort zurueck.
 
     Args:
         prompt (str): Die Anweisung oder Frage an die KI.
-        model (str): Das zu verwendende Modell (z.B. 'llama3', 'mistral', 'llama4').
+        model (str | None): Das zu verwendende Modell. Wenn None, wird config.yaml genutzt.
 
     Returns:
         str: Die generierte Antwort der KI oder eine Fehlermeldung.
     """
     try:
         # Verbindung zu Ollama herstellen und Prompt verarbeiten
+        if model is None:
+            model = _load_llm_model_from_config()
+        print("Current LLM Model:", model)
         response = ollama.chat(
             model=model,
             messages=[
@@ -32,12 +54,12 @@ def generate_ai_response(prompt, model="llama3.2:1b"):
         return f"Fehler bei der Kommunikation mit Ollama: {str(e)}"
 
 
-# --- Beispiel für die Nutzung ---
+# --- Beispiel fuer die Nutzung ---
 if __name__ == "__main__":
-    my_prompt = "Schreibe einen Kriminalbericht über eine fiktive Person. die Personenbeschreibung ist bereits erfolgt. Schreibe nur, was die person verbrochen haben könnte in einem Fließtext. BEachte dabei, dass es sich um ein Verbrechen in der Stasi handelt. Die ausgabe soll nicht mehr als 50 Wörter haben. Antworte möglichst kurz und versuche etwas lustiges in die story einzubauen. Die story muss nicht erklärt sein. Es reicht einfach nur ein Verbrechen darzustellen"
+    my_prompt = "Schreibe einen Kriminalbericht ueber eine fiktive Person. die Personenbeschreibung ist bereits erfolgt. Schreibe nur, was die person verbrochen haben koennte in einem Fliesstext. BEachte dabei, dass es sich um ein Verbrechen in der Stasi handelt. Die ausgabe soll nicht mehr als 50 Woerter haben. Antworte moeglichst kurz und versuche etwas lustiges in die story einzubauen. Die story muss nicht erklaert sein. Es reicht einfach nur ein Verbrechen darzustellen"
 
     print("KI denkt nach...")
-    story = generate_ai_response(my_prompt, model="llama3.2:1b")
+    story = generate_ai_response(my_prompt, "phi3:3.8b")
 
     print("\n--- Generierte Story ---")
     print(story)

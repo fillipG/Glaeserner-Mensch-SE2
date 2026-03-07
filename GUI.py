@@ -6,7 +6,8 @@ import time
 
 from PyQt6.QtWidgets import (QApplication, QGraphicsView, QGraphicsScene,
                              QWidget, QVBoxLayout, QHBoxLayout,
-                             QLabel, QFrame, QGraphicsObject, QPushButton, QSlider, QCheckBox, QLineEdit, QScrollArea, QSizePolicy)
+                             QLabel, QFrame, QGraphicsObject, QPushButton, QSlider, QCheckBox, QLineEdit, QScrollArea, QSizePolicy,
+                             QComboBox)
 from PyQt6.QtGui import QPixmap, QFont, QColor, QPainter, QImage, QPen
 from PyQt6.QtCore import Qt, pyqtSignal, QRectF, QPropertyAnimation, pyqtProperty, QEasingCurve, QTimer, pyqtSlot
 from sketch import create_advanced_sketch
@@ -20,6 +21,12 @@ PERSONEN_DATEN = [
      "gefahr": "MITTEL"},
     {"titel": "PERSON 3", "geschlecht": "Divers", "augen": "Grün", "stimmung": "Aggressiv", "alter": "41",
      "gefahr": "EXTREM"},
+]
+
+LLM_OPTIONS = [
+    {"label": "Ollama - llama3 (schlau)", "value": "llama3.2:1b"},
+    {"label": "Ollama - gemma3 (schnell)", "value": "gemma3"},
+    {"label": "Ollama - phi3 (klein)", "value": "phi3:3.8b"},
 ]
 
 
@@ -181,9 +188,11 @@ class AdminMenu(QFrame):
     moondream_prompt_changed = pyqtSignal(str)
     deepface_enabled_changed = pyqtSignal(bool)
     fer_enabled_changed = pyqtSignal(bool)
+    llm_model_changed = pyqtSignal(str)
 
-    def __init__(self, parent=None):
+    def __init__(self, llm_options=None, parent=None):
         super().__init__(parent)
+        self.llm_options = llm_options or list(LLM_OPTIONS)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setStyleSheet("""
             background-color: rgba(45, 35, 25, 245);
@@ -280,6 +289,23 @@ class AdminMenu(QFrame):
 
         layout.addWidget(models_box)
 
+        layout.addWidget(self._section_title("LLM AUSWAHL"))
+        llm_box = self._create_group_box()
+        llm_layout = QVBoxLayout(llm_box)
+        llm_label = QLabel("LLM Modell")
+        llm_label.setFont(QFont("Graduate", 14, QFont.Weight.Bold))
+        self.llm_combo = QComboBox()
+        self.llm_combo.addItems([opt["label"] for opt in self.llm_options])
+        self.llm_combo.setStyleSheet(
+            "QComboBox { background-color: #2b2018; color: #f4e4bc; border: 1px solid #f4e4bc; "
+            "border-radius: 6px; padding: 6px; }"
+            "QComboBox::drop-down { border: 0px; }"
+        )
+        self.llm_combo.currentTextChanged.connect(self._on_llm_changed)
+        llm_layout.addWidget(llm_label)
+        llm_layout.addWidget(self.llm_combo)
+        layout.addWidget(llm_box)
+
         layout.addStretch()
         layout.addWidget(QLabel("DRUECKE 'E' ZUM VERLASSEN", alignment=Qt.AlignmentFlag.AlignCenter))
         self.hide()
@@ -366,6 +392,11 @@ class AdminMenu(QFrame):
             return
         self.moondream_prompt_changed.emit(self.moondream_prompt.text().strip())
 
+    def _on_llm_changed(self, text):
+        label_to_value = {opt["label"]: opt["value"] for opt in self.llm_options}
+        value = label_to_value.get(text, self.llm_options[0]["value"])
+        self.llm_model_changed.emit(value)
+
     def apply_settings(self, settings):
         self._set_slider_value(self.wait_time_slider, settings.get("wait_time_file_closed", 3))
         self.wait_time_value.setText(f"{self.wait_time_slider.value()} s")
@@ -386,6 +417,8 @@ class AdminMenu(QFrame):
         self._set_checkbox_value(self.deepface_enabled, settings.get("deepface_enabled", False))
         self._set_checkbox_value(self.fer_enabled, settings.get("fer_enabled", False))
 
+        self._set_llm_value(settings.get("llm_model", LLM_OPTIONS[0]["value"]))
+
     def _set_slider_value(self, slider, value):
         slider.blockSignals(True)
         slider.setValue(int(value))
@@ -405,6 +438,13 @@ class AdminMenu(QFrame):
         lineedit.blockSignals(True)
         lineedit.setText(text)
         lineedit.blockSignals(False)
+
+    def _set_llm_value(self, value):
+        value_to_label = {opt["value"]: opt["label"] for opt in self.llm_options}
+        label = value_to_label.get(value, self.llm_options[0]["label"])
+        self.llm_combo.blockSignals(True)
+        self.llm_combo.setCurrentText(label)
+        self.llm_combo.blockSignals(False)
 
     def update_geometry(self, parent_size):
         max_w = int(parent_size.width() * 0.6)
@@ -594,7 +634,7 @@ class ScalingAkteGUI(QGraphicsView):
         self.scan_timer.timeout.connect(self.update_descriptions_from_files)
         self.scan_timer.start(2000)  # Scan alle 2 Sekunden
 
-        self.admin_menu = AdminMenu(self)
+        self.admin_menu = AdminMenu(LLM_OPTIONS, self)
         self._connect_admin_menu()
         self._sync_admin_menu_with_config()
         self.show_closed_folder()
@@ -1046,6 +1086,7 @@ class ScalingAkteGUI(QGraphicsView):
         config.setdefault("reset_countdown_seconds", 3)
         config.setdefault("fullscreen", True)
         config.setdefault("developer_mode", False)
+        config.setdefault("llm_model", LLM_OPTIONS[0]["value"])
 
         pipeline = config.setdefault("pipeline", [])
         if not isinstance(pipeline, list):
@@ -1120,6 +1161,7 @@ class ScalingAkteGUI(QGraphicsView):
         self.admin_menu.moondream_prompt_changed.connect(self._on_moondream_prompt)
         self.admin_menu.deepface_enabled_changed.connect(self._on_deepface_enabled)
         self.admin_menu.fer_enabled_changed.connect(self._on_fer_enabled)
+        self.admin_menu.llm_model_changed.connect(self._on_llm_model_changed)
 
     def _sync_admin_menu_with_config(self):
         moondream = self._get_pipeline_entry("moondream") or {}
@@ -1134,6 +1176,7 @@ class ScalingAkteGUI(QGraphicsView):
             "moondream_prompt": moondream.get("prompt", ""),
             "deepface_enabled": deepface.get("enabled", False),
             "fer_enabled": fer.get("enabled", False),
+            "llm_model": self.config.get("llm_model", LLM_OPTIONS[0]["value"]),
         }
         self.admin_menu.apply_settings(settings)
 
@@ -1164,6 +1207,9 @@ class ScalingAkteGUI(QGraphicsView):
 
     def _on_fer_enabled(self, enabled):
         self._update_pipeline_value("fer", "enabled", bool(enabled))
+
+    def _on_llm_model_changed(self, value):
+        self._update_config_value("llm_model", value)
 
     def _set_fullscreen(self, enabled):
         self.is_fullscreen = bool(enabled)
