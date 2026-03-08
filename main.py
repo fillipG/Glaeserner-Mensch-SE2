@@ -118,7 +118,7 @@ def run_app():
     Haupteinstiegspunkt für die Anwendung.
     Initialisiert die GUI und startet die Hintergrund-Prozesse in einer sicheren Reihenfolge
     """
-    from GUI import ScalingAkteGUI
+    from gui.main_gui import ScalingAkteGUI
 
     # Initialisierung von PyQt
     app = QApplication(sys.argv)
