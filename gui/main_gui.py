@@ -92,9 +92,9 @@ class ScalingAkteGUI(QGraphicsView):
         self.camera_pixmap_item = None
 
         # Timer für das Scannen des "final" Ordners
-        self.scan_timer = QTimer(self)
-        self.scan_timer.timeout.connect(self.update_descriptions_from_files)
-        self.scan_timer.start(2000)  # Scan alle 2 Sekunden
+        #self.scan_timer = QTimer(self)
+        #self.scan_timer.timeout.connect(self.update_descriptions_from_files)
+        #self.scan_timer.start(2000)  # Scan alle 2 Sekunden
 
         self.admin_menu = AdminMenu(LLM_OPTIONS, self)
         self._connect_admin_menu()

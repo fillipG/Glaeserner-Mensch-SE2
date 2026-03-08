@@ -154,7 +154,7 @@ def run_app():
     # Kamera-Frames vom YOLO-Thread direkt an die GUI weitergeben
     yolo_thread.frame_ready.connect(window.on_camera_frame)
     # Nach Fotoaufnahme: Mappe automatisch öffnen
-    yolo_thread.photo_done.connect(window.show_animation_with_timer)
+    yolo_thread.photo_done.connect(window.show_loading_indicator)
     # Wenn closed_folder wieder angezeigt wird: Erkennung fortsetzen
     window.folder_closed.connect(yolo_thread.resume)
 
