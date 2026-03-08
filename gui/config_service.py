@@ -28,7 +28,17 @@ class ConfigService:
         config.setdefault("language", "de")
         config.setdefault("wait_time_file_closed", 3)
         config.setdefault("reset_countdown_seconds", 3)
+        config.setdefault("pipeline_timeout_seconds", 30)
         config.setdefault("fullscreen", True)
         config.setdefault("developer_mode", False)
         config.setdefault("llm_model", self.default_llm_value)
+
+        pool = config.setdefault("pool", {})
+        if not isinstance(pool, dict):
+            pool = {}
+            config["pool"] = pool
+        pool.setdefault("enabled", True)
+        pool.setdefault("path", "./pool")
+        pool.setdefault("max_extra_persons", 3)
+        pool.setdefault("cooldown_batches", 3)
 

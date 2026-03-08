@@ -72,6 +72,7 @@ class ScalingAkteGUI(QGraphicsView):
         self.config = self._load_config()
         self.wait_time_file_closed = int(self.config.get("wait_time_file_closed", 3))
         self.reset_countdown_seconds = int(self.config.get("reset_countdown_seconds", 3))
+        self.pipeline_timeout_seconds = int(self.config.get("pipeline_timeout_seconds", 30))
         self.animation_speed = int(self.config.get("animation_speed", 1))
         self.is_fullscreen = bool(self.config.get("fullscreen", True))
         self.developer_mode = bool(self.config.get("developer_mode", False))
@@ -90,6 +91,9 @@ class ScalingAkteGUI(QGraphicsView):
         self._reset_countdown_timer.timeout.connect(self._update_reset_countdown)
         self._reset_countdown_remaining = 0
         self.camera_pixmap_item = None
+        self._pipeline_timeout_timer = QTimer(self)
+        self._pipeline_timeout_timer.setSingleShot(True)
+        self._pipeline_timeout_timer.timeout.connect(self._on_pipeline_timeout)
 
         # Timer für das Scannen des "final" Ordners
         #self.scan_timer = QTimer(self)
@@ -125,6 +129,7 @@ class ScalingAkteGUI(QGraphicsView):
     def show_loading_indicator(self):
         """Zeigt ein Lade-Symbol je nach GUI-Zustand an und tauscht den Reset-Button aus."""
         self.loading_active = True
+        self._start_pipeline_timeout()
         if self.loading_item is not None:
             if hasattr(self.loading_item, "stop"):
                 self.loading_item.stop()
@@ -156,6 +161,8 @@ class ScalingAkteGUI(QGraphicsView):
     def hide_loading_indicator(self):
         """Beendet das Ladesymbol und stellt den Reset-Button wieder her."""
         self.loading_active = False
+        if self._pipeline_timeout_timer.isActive():
+            self._pipeline_timeout_timer.stop()
         if self.loading_item is not None:
             if hasattr(self.loading_item, "stop"):
                 self.loading_item.stop()
@@ -163,6 +170,19 @@ class ScalingAkteGUI(QGraphicsView):
             self.scene.removeItem(self.loading_item)
             self.loading_item = None
         self._set_reset_button_loading(False)
+
+    def _start_pipeline_timeout(self):
+        timeout_ms = max(1, int(self.pipeline_timeout_seconds)) * 1000
+        self._pipeline_timeout_timer.start(timeout_ms)
+
+    def _on_pipeline_timeout(self):
+        if not self.loading_active:
+            return
+        if self.developer_mode:
+            print(f"Pipeline timeout after {self.pipeline_timeout_seconds} seconds. Returning to closed folder.")
+        self.hide_loading_indicator()
+        if not self.is_animating:
+            self.show_closed_folder()
 
     def _set_reset_button_loading(self, is_loading):
         if not hasattr(self, "btn_reset"):
@@ -441,7 +461,9 @@ class ScalingAkteGUI(QGraphicsView):
                     translated = self.translator.translate_text(description) if self.translator else description
                     container.beschreibung.full_text = translated
                     container.beschreibung.start_typing()
-                image_path = os.path.join(PATHS["sketch_dir"], f"face{i + 1}.png")
+                image_path = self.person_data[i].get("face_image_path")
+                if not image_path or not os.path.exists(image_path):
+                    image_path = os.path.join(PATHS["sketch_dir"], f"face{i + 1}.png")
                 if os.path.exists(image_path):
                     sketch_img = create_advanced_sketch(image_path)
                     container.set_sketch_image(sketch_img)
@@ -505,6 +527,7 @@ class ScalingAkteGUI(QGraphicsView):
             model_id="deepface",
             name="Emotionserkennung",
             enabled=False,
+            use_retinaface=True,
         )
         self._ensure_pipeline_entry(
             pipeline,
@@ -513,7 +536,16 @@ class ScalingAkteGUI(QGraphicsView):
             enabled=False,
         )
 
-    def _ensure_pipeline_entry(self, pipeline, model_id, name, enabled=False, prompt=None, show_preview=False):
+    def _ensure_pipeline_entry(
+        self,
+        pipeline,
+        model_id,
+        name,
+        enabled=False,
+        prompt=None,
+        show_preview=False,
+        use_retinaface=None,
+    ):
         entry = next((p for p in pipeline if p.get("id") == model_id), None)
         if entry is None:
             entry = {
@@ -532,6 +564,8 @@ class ScalingAkteGUI(QGraphicsView):
             entry.setdefault("show_preview", True)
         if prompt is not None:
             entry.setdefault("prompt", prompt)
+        if use_retinaface is not None:
+            entry.setdefault("use_retinaface", bool(use_retinaface))
 
     def _get_pipeline_entry(self, model_id):
         pipeline = self.config.setdefault("pipeline", [])
@@ -551,14 +585,32 @@ class ScalingAkteGUI(QGraphicsView):
         entry[key] = value
         self._save_config()
 
+    def _update_pool_value(self, key, value):
+        pool = self.config.setdefault("pool", {})
+        if not isinstance(pool, dict):
+            pool = {}
+            self.config["pool"] = pool
+        pool[key] = value
+        self._save_config()
+        self._reload_pool_settings()
+
+    def _reload_pool_settings(self):
+        pipeline = getattr(self, "_pipeline", None)
+        if pipeline is not None and hasattr(pipeline, "request_pool_reload"):
+            pipeline.request_pool_reload()
+
     def _connect_admin_menu(self):
         self.admin_menu.wait_time_changed.connect(self._on_wait_time_changed)
         self.admin_menu.animation_speed_changed.connect(self._on_animation_speed_changed)
+        self.admin_menu.pipeline_timeout_changed.connect(self._on_pipeline_timeout_changed)
         self.admin_menu.fullscreen_toggled.connect(self._on_fullscreen_toggled)
         self.admin_menu.developer_mode_toggled.connect(self._on_developer_mode_toggled)
+        self.admin_menu.pool_enabled_changed.connect(self._on_pool_enabled_changed)
+        self.admin_menu.pool_max_extra_changed.connect(self._on_pool_max_extra_changed)
         self.admin_menu.moondream_enabled_changed.connect(self._on_moondream_enabled)
         self.admin_menu.moondream_prompt_changed.connect(self._on_moondream_prompt)
         self.admin_menu.deepface_enabled_changed.connect(self._on_deepface_enabled)
+        self.admin_menu.deepface_retinaface_changed.connect(self._on_deepface_retinaface_changed)
         self.admin_menu.fer_enabled_changed.connect(self._on_fer_enabled)
         self.admin_menu.llm_model_changed.connect(self._on_llm_model_changed)
 
@@ -566,14 +618,19 @@ class ScalingAkteGUI(QGraphicsView):
         moondream = self._get_pipeline_entry("moondream") or {}
         deepface = self._get_pipeline_entry("deepface") or {}
         fer = self._get_pipeline_entry("fer") or {}
+        pool = self.config.get("pool", {})
         settings = {
             "wait_time_file_closed": self.config.get("wait_time_file_closed", 3),
             "animation_speed": self.config.get("animation_speed", 1),
+            "pipeline_timeout_seconds": self.config.get("pipeline_timeout_seconds", 30),
             "fullscreen": self.config.get("fullscreen", True),
             "developer_mode": self.config.get("developer_mode", False),
+            "pool_enabled": pool.get("enabled", True),
+            "pool_max_extra_persons": pool.get("max_extra_persons", 3),
             "moondream_enabled": moondream.get("enabled", True),
             "moondream_prompt": moondream.get("prompt", ""),
             "deepface_enabled": deepface.get("enabled", False),
+            "deepface_use_retinaface": deepface.get("use_retinaface", True),
             "fer_enabled": fer.get("enabled", False),
             "llm_model": self.config.get("llm_model", LLM_OPTIONS[0]["value"]),
         }
@@ -587,6 +644,12 @@ class ScalingAkteGUI(QGraphicsView):
         self.animation_speed = int(value)
         self._update_config_value("animation_speed", self.animation_speed)
 
+    def _on_pipeline_timeout_changed(self, value):
+        self.pipeline_timeout_seconds = max(1, int(value))
+        self._update_config_value("pipeline_timeout_seconds", self.pipeline_timeout_seconds)
+        if self.loading_active:
+            self._start_pipeline_timeout()
+
     def _on_fullscreen_toggled(self, enabled):
         self._set_fullscreen(bool(enabled))
         self._update_config_value("fullscreen", bool(enabled))
@@ -594,6 +657,13 @@ class ScalingAkteGUI(QGraphicsView):
     def _on_developer_mode_toggled(self, enabled):
         self.developer_mode = bool(enabled)
         self._update_config_value("developer_mode", self.developer_mode)
+
+    def _on_pool_enabled_changed(self, enabled):
+        self._update_pool_value("enabled", bool(enabled))
+
+    def _on_pool_max_extra_changed(self, value):
+        pool_value = max(0, min(3, int(value)))
+        self._update_pool_value("max_extra_persons", pool_value)
 
     def _on_moondream_enabled(self, enabled):
         self._update_pipeline_value("moondream", "enabled", bool(enabled))
@@ -603,6 +673,9 @@ class ScalingAkteGUI(QGraphicsView):
 
     def _on_deepface_enabled(self, enabled):
         self._update_pipeline_value("deepface", "enabled", bool(enabled))
+
+    def _on_deepface_retinaface_changed(self, enabled):
+        self._update_pipeline_value("deepface", "use_retinaface", bool(enabled))
 
     def _on_fer_enabled(self, enabled):
         self._update_pipeline_value("fer", "enabled", bool(enabled))

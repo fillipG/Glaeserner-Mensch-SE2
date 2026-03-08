@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import (QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
                              QSlider, QCheckBox, QLineEdit, QScrollArea, QSizePolicy, QComboBox)
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QIntValidator
 from PyQt6.QtCore import Qt, pyqtSignal
 
 
@@ -8,11 +8,15 @@ class AdminMenu(QFrame):
     """Admin-Menue mit Anzeige- und Slider-Elementen."""
     wait_time_changed = pyqtSignal(int)
     animation_speed_changed = pyqtSignal(int)
+    pipeline_timeout_changed = pyqtSignal(int)
     fullscreen_toggled = pyqtSignal(bool)
     developer_mode_toggled = pyqtSignal(bool)
+    pool_enabled_changed = pyqtSignal(bool)
+    pool_max_extra_changed = pyqtSignal(int)
     moondream_enabled_changed = pyqtSignal(bool)
     moondream_prompt_changed = pyqtSignal(str)
     deepface_enabled_changed = pyqtSignal(bool)
+    deepface_retinaface_changed = pyqtSignal(bool)
     fer_enabled_changed = pyqtSignal(bool)
     llm_model_changed = pyqtSignal(str)
 
@@ -71,6 +75,21 @@ class AdminMenu(QFrame):
         self.anim_speed_slider.valueChanged.connect(self._on_animation_speed_changed)
         general_layout.addLayout(self._slider_row(self.anim_speed_label, self.anim_speed_slider, self.anim_speed_value))
 
+        timeout_row = QHBoxLayout()
+        timeout_label = QLabel("Pipeline Timeout (Sek.)")
+        timeout_label.setMinimumWidth(220)
+        self.pipeline_timeout_edit = QLineEdit()
+        self.pipeline_timeout_edit.setValidator(QIntValidator(1, 9999, self))
+        self.pipeline_timeout_edit.setPlaceholderText("z.B. 45")
+        self.pipeline_timeout_edit.setStyleSheet(
+            "QLineEdit { background-color: #2b2018; color: #f4e4bc; border: 1px solid #f4e4bc; "
+            "border-radius: 6px; padding: 6px; }"
+        )
+        self.pipeline_timeout_edit.editingFinished.connect(self._on_pipeline_timeout_changed)
+        timeout_row.addWidget(timeout_label)
+        timeout_row.addWidget(self.pipeline_timeout_edit, 1)
+        general_layout.addLayout(timeout_row)
+
         layout.addWidget(general_box)
 
         layout.addWidget(self._section_title("GRAFIK"))
@@ -97,20 +116,47 @@ class AdminMenu(QFrame):
         graphics_layout.addWidget(self.developer_mode_button)
         layout.addWidget(graphics_box)
 
+        layout.addWidget(self._section_title("POOL"))
+        pool_box = self._create_group_box()
+        pool_layout = QVBoxLayout(pool_box)
+
+        self.pool_enabled_button = QPushButton("Pool: AUS")
+        self.pool_enabled_button.setCheckable(True)
+        self.pool_enabled_button.setStyleSheet(
+            "QPushButton { background-color: #3d2b1f; color: #f4e4bc; border: 2px solid #f4e4bc; "
+            "border-radius: 10px; padding: 8px 14px; font-size: 16px; font-weight: bold; }"
+            "QPushButton:checked { background-color: #5a4030; }"
+        )
+        self.pool_enabled_button.toggled.connect(self._on_pool_enabled_toggled)
+        pool_layout.addWidget(self.pool_enabled_button)
+
+        self.pool_max_extra_label = QLabel("Zusatzpersonen")
+        self.pool_max_extra_value = QLabel("0")
+        self.pool_max_extra_slider = self._create_slider(0, 3)
+        self.pool_max_extra_slider.valueChanged.connect(self._on_pool_max_extra_changed)
+        pool_layout.addLayout(
+            self._slider_row(self.pool_max_extra_label, self.pool_max_extra_slider, self.pool_max_extra_value)
+        )
+        layout.addWidget(pool_box)
+
         layout.addWidget(self._section_title("KI-MODELLE"))
         models_box = self._create_group_box()
         models_layout = QVBoxLayout(models_box)
 
-        self.moondream_enabled, self.moondream_prompt = self._create_model_block(
+        self.moondream_enabled, self.moondream_prompt, _ = self._create_model_block(
             models_layout, "Moondream", has_prompt=True
         )
         self.moondream_enabled.toggled.connect(self.moondream_enabled_changed)
         self.moondream_prompt.editingFinished.connect(self._on_moondream_prompt_changed)
 
-        self.deepface_enabled, _ = self._create_model_block(models_layout, "Deepface")
+        self.deepface_enabled, _, deepface_layout = self._create_model_block(models_layout, "Deepface")
         self.deepface_enabled.toggled.connect(self.deepface_enabled_changed)
+        self.deepface_retinaface = QCheckBox("Verbessertes Analysemodell (RetinaFace)")
+        self.deepface_retinaface.setStyleSheet("QCheckBox { font-size: 14px; }")
+        self.deepface_retinaface.toggled.connect(self.deepface_retinaface_changed)
+        deepface_layout.addWidget(self.deepface_retinaface)
 
-        self.fer_enabled, _ = self._create_model_block(models_layout, "FER")
+        self.fer_enabled, _, _ = self._create_model_block(models_layout, "FER")
         self.fer_enabled.toggled.connect(self.fer_enabled_changed)
 
         layout.addWidget(models_box)
@@ -195,7 +241,7 @@ class AdminMenu(QFrame):
             layout.addWidget(prompt_label)
             layout.addWidget(prompt_edit)
         parent_layout.addWidget(block)
-        return enabled_box, prompt_edit
+        return enabled_box, prompt_edit, layout
 
     def _on_wait_time_changed(self, value):
         self.wait_time_value.setText(f"{value} s")
@@ -205,6 +251,17 @@ class AdminMenu(QFrame):
         self.anim_speed_value.setText(str(value))
         self.animation_speed_changed.emit(value)
 
+    def _on_pipeline_timeout_changed(self):
+        text = self.pipeline_timeout_edit.text().strip()
+        if not text:
+            return
+        try:
+            value = max(1, int(text))
+        except ValueError:
+            return
+        self.pipeline_timeout_edit.setText(str(value))
+        self.pipeline_timeout_changed.emit(value)
+
     def _on_fullscreen_toggled(self, checked):
         self.fullscreen_button.setText("Vollbild: AN" if checked else "Vollbild: AUS")
         self.fullscreen_toggled.emit(checked)
@@ -212,6 +269,14 @@ class AdminMenu(QFrame):
     def _on_developer_mode_toggled(self, checked):
         self.developer_mode_button.setText("Developer Mode: AN" if checked else "Developer Mode: AUS")
         self.developer_mode_toggled.emit(checked)
+
+    def _on_pool_enabled_toggled(self, checked):
+        self.pool_enabled_button.setText("Pool: AN" if checked else "Pool: AUS")
+        self.pool_enabled_changed.emit(checked)
+
+    def _on_pool_max_extra_changed(self, value):
+        self.pool_max_extra_value.setText(str(value))
+        self.pool_max_extra_changed.emit(value)
 
     def _on_moondream_prompt_changed(self):
         if self.moondream_prompt is None:
@@ -228,6 +293,7 @@ class AdminMenu(QFrame):
         self.wait_time_value.setText(f"{self.wait_time_slider.value()} s")
         self._set_slider_value(self.anim_speed_slider, settings.get("animation_speed", 1))
         self.anim_speed_value.setText(str(self.anim_speed_slider.value()))
+        self._set_lineedit_value(self.pipeline_timeout_edit, str(settings.get("pipeline_timeout_seconds", 30)))
 
         self._set_toggle_button(self.fullscreen_button, settings.get("fullscreen", True))
         self.fullscreen_button.setText("Vollbild: AN" if self.fullscreen_button.isChecked() else "Vollbild: AUS")
@@ -237,10 +303,16 @@ class AdminMenu(QFrame):
             "Developer Mode: AN" if self.developer_mode_button.isChecked() else "Developer Mode: AUS"
         )
 
+        self._set_toggle_button(self.pool_enabled_button, settings.get("pool_enabled", True))
+        self.pool_enabled_button.setText("Pool: AN" if self.pool_enabled_button.isChecked() else "Pool: AUS")
+        self._set_slider_value(self.pool_max_extra_slider, settings.get("pool_max_extra_persons", 3))
+        self.pool_max_extra_value.setText(str(self.pool_max_extra_slider.value()))
+
         self._set_checkbox_value(self.moondream_enabled, settings.get("moondream_enabled", True))
         if self.moondream_prompt is not None:
             self._set_lineedit_value(self.moondream_prompt, settings.get("moondream_prompt", ""))
         self._set_checkbox_value(self.deepface_enabled, settings.get("deepface_enabled", False))
+        self._set_checkbox_value(self.deepface_retinaface, settings.get("deepface_use_retinaface", True))
         self._set_checkbox_value(self.fer_enabled, settings.get("fer_enabled", False))
 
         self._set_llm_value(settings.get("llm_model", self.llm_options[0]["value"]))

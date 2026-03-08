@@ -17,8 +17,9 @@ class PipelineManager(QObject):
     # Signal: Sendet einen Status-String und die komplette Personen-Liste
     data_finalized = pyqtSignal(str, list)
 
-    def __init__(self, config_data):
+    def __init__(self, config_data, pool_loader=None):
         super().__init__()
+        self.pool_loader = pool_loader
 
         self.target_lang = config_data.get("language", "en")
         if self.target_lang == "de":
@@ -105,24 +106,62 @@ class PipelineManager(QObject):
         df_data = captured_data.get("deepface", {})
         moon_data = captured_data.get("moondream", {})
 
-        person_dict = {
-            "titel": f"ID: {base_id.upper()}",
-            "geschlecht": df_data.get("Geschlecht", "Unbekannt"),
-            "augen": "Braun",
-            "stimmung": df_data.get("Emotion", "Neutral"),
-            "alter": str(df_data.get("Alter", "N/A")),
-            "gefahr": self._calculate_danger(df_data.get("Emotion", "Neutral")),
-            "beschreibung": moon_data.get("description", "Keine Beschreibung gefunden.")
-        }
-
-        if self.translator and self.target_lang == "de":
-            person_dict["beschreibung"] = self.translator.translate_text(person_dict["beschreibung"])
-
+        person_dict = self._build_person_dict(base_id, df_data, moon_data)
         self.collected_faces.append(person_dict)
         print(f"--- [COLLECTED] {base_id} ({len(self.collected_faces)}/{self.expected_face_count}) ---")
 
         if self.expected_face_count > 0 and len(self.collected_faces) >= self.expected_face_count:
             self.finalize_and_send_batch()
+
+    def _build_person_dict(self, base_id, df_data, moon_data, face_image_path=None, source="real"):
+        beschreibung = moon_data.get("description", "Keine Beschreibung gefunden.")
+        if self.translator and self.target_lang == "de":
+            beschreibung = self.translator.translate_text(beschreibung)
+
+        person_dict = {
+            "titel": f"ID: {str(base_id).upper()}",
+            "geschlecht": df_data.get("Geschlecht", "Unbekannt"),
+            "augen": "Braun",
+            "stimmung": df_data.get("Emotion", "Neutral"),
+            "alter": str(df_data.get("Alter", "N/A")),
+            "gefahr": self._calculate_danger(df_data.get("Emotion", "Neutral")),
+            "beschreibung": beschreibung,
+            "source": source,
+        }
+        if face_image_path:
+            person_dict["face_image_path"] = face_image_path
+        return person_dict
+
+    def _append_pool_people(self, personen_daten):
+        real_count = len(personen_daten)
+        if real_count == 0 or real_count >= 4:
+            return personen_daten
+        if self.pool_loader is None:
+            return personen_daten
+
+        fehlende_slots = 4 - real_count
+        pool_selection = self.pool_loader.get_pool_persons(fehlende_slots)
+        for pool_person in pool_selection:
+            personen_daten.append(
+                self._build_person_dict(
+                    base_id=pool_person.get("face_id", "pool"),
+                    df_data=pool_person.get("deepface", {}),
+                    moon_data=pool_person.get("moondream", {}),
+                    face_image_path=pool_person.get("face_image_path"),
+                    source=pool_person.get("source", "pool"),
+                )
+            )
+
+        # Vereinheitlicht die sichtbaren IDs auf FACE1..FACE4.
+        for index, person in enumerate(personen_daten, start=1):
+            person["titel"] = f"ID: FACE{index}"
+
+        return personen_daten
+
+    def reload_pool_loader(self):
+        if self.pool_loader is None:
+            return
+        self.pool_loader.reload()
 
     def _calculate_danger(self, emotion):
         danger_map = {
@@ -137,8 +176,8 @@ class PipelineManager(QObject):
         if not self.collected_faces:
             return
 
-        print(f"\n🚀 ALL FACES READY! Sending batch of {len(self.collected_faces)} to GUI...")
-        data_to_send = list(self.collected_faces)
+        data_to_send = self._append_pool_people(list(self.collected_faces))
+        print(f"\n🚀 ALL FACES READY! Sending batch of {len(data_to_send)} to GUI...")
         self.data_finalized.emit("BATCH", data_to_send)
 
         # Pause, damit die GUI die Daten laden kann, bevor wir die Dateien löschen

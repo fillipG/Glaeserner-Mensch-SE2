@@ -5,6 +5,11 @@ reset_countdown_seconds: 3
 animation_speed: 20
 fullscreen: true
 photo_delay: 3
+pool:
+  enabled: true
+  path: ./pool
+  max_extra_persons: 1
+  cooldown_batches: 3
 pipeline:
 - id: moondream
   name: Visual Description (VLM)
@@ -19,9 +24,11 @@ pipeline:
   enabled: true
   watch_dir: ./General ordner/final
   file_ext: .yaml
+  use_retinaface: true
 - id: fer
   name: Emotionserkennung (FER)
   enabled: false
   watch_dir: ./General ordner/final
   file_ext: .yaml
 llm_model: phi3:3.8b
+pipeline_timeout_seconds: 600

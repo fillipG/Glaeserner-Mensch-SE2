@@ -84,19 +84,30 @@ Daten an die GUI zu senden.
 class PipelineWorker(QThread):
     # Signal, um Ergebnisse an die GUI zu senden
     result_ready = pyqtSignal(str, list)
+    reload_pool_requested = pyqtSignal()
+
+    def request_pool_reload(self):
+        self.reload_pool_requested.emit()
+
     def run(self):
         # Import innerhalb des Threads, um Konflikte beim Start zu vermeiden
         from pipelinemanager import PipelineManager
+        from pool_loader import PoolLoader
         try:
             # Konfiguration laden
             with open("config.yaml", "r") as f:
                 config_data = yaml.safe_load(f)
 
+            pool_loader = PoolLoader("config.yaml", config_data=config_data)
             # Initialisierung des Managers innerhalb des Threads
-            self.manager = PipelineManager(config_data)
+            self.manager = PipelineManager(config_data, pool_loader=pool_loader)
 
             # Das Signal des Managers mit dem Signal des Workers verknüpfen
             self.manager.data_finalized.connect(self.result_ready.emit)
+            self.reload_pool_requested.connect(
+                self.manager.reload_pool_loader,
+                Qt.ConnectionType.QueuedConnection
+            )
 
             print("--- Pipeline Worker: ACTIVE ---")
 

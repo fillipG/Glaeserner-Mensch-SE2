@@ -4,6 +4,8 @@ services:
     container_name: deepface_project_container
     volumes:
       - .:/app
+      - ../main_image:/app/main_image
+      - ./deepface_inbox:/app/deepface_inbox
       - ../faces_yolo:/app/faces_yolo
       - ../final:/app/final
     environment:
