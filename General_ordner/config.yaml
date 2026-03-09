@@ -1,0 +1,16 @@
+language: de
+developer_mode: false
+wait_time_file_closed: 3
+reset_countdown_seconds: 3
+animation_speed: 20
+fullscreen: true
+photo_delay: 3  
+pipeline:
+- id: moondream
+  name: Visual Description (VLM)
+  enabled: true
+  watch_dir: ./General ordner/final
+  file_ext: .yaml
+  show_preview: true
+  prompt: Name the clothing and any accessories the person is wearing and tell a imagined
+    crime story to the person
