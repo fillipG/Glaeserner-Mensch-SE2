@@ -16,6 +16,25 @@ from PyQt6.QtCore import QThread, pyqtSignal
 from PyQt6.QtWidgets import QApplication
 
 
+def clear_directory(path):
+    """Loescht den Inhalt eines Ordners, laesst den Ordner selbst aber bestehen."""
+    os.makedirs(path, exist_ok=True)
+    for entry in os.listdir(path):
+        entry_path = os.path.join(path, entry)
+        try:
+            if os.path.isfile(entry_path) or os.path.islink(entry_path):
+                os.unlink(entry_path)
+            elif os.path.isdir(entry_path):
+                for root, dirs, files in os.walk(entry_path, topdown=False):
+                    for file_name in files:
+                        os.unlink(os.path.join(root, file_name))
+                    for dir_name in dirs:
+                        os.rmdir(os.path.join(root, dir_name))
+                os.rmdir(entry_path)
+        except Exception as e:
+            print(f"Startup-Cleanup konnte {entry_path} nicht loeschen: {e}")
+
+
 class YOLOWorker(QThread):
     frame_ready = pyqtSignal(object)
     photo_done  = pyqtSignal()
@@ -143,6 +162,17 @@ def run_app():
     # processEvents zwingt Windows dazu, das Fenster sofort zu zeichnen,
     # bevor der Prozessor mit dem Laden der KI-Modelle beginnt
     app.processEvents()
+
+    # Vor dem Start alle Laufzeitordner bereinigen, damit keine Restdaten vom letzten Lauf uebrig bleiben
+    startup_cleanup_dirs = [
+        "General ordner/final",
+        "General ordner/main_image",
+        "General ordner/sketch",
+        "General ordner/docker-compose-deepface/deepface_inbox",
+        "General ordner/moondream_ai/moondream_inbox",
+    ]
+    for cleanup_dir in startup_cleanup_dirs:
+        clear_directory(cleanup_dir)
 
     # 2. Pipeline-Worker starten:
     pipeline_thread = PipelineWorker()

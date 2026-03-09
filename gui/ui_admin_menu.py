@@ -9,6 +9,7 @@ class AdminMenu(QFrame):
     wait_time_changed = pyqtSignal(int)
     animation_speed_changed = pyqtSignal(int)
     pipeline_timeout_changed = pyqtSignal(int)
+    face_yolo_confidence_changed = pyqtSignal(float)
     fullscreen_toggled = pyqtSignal(bool)
     developer_mode_toggled = pyqtSignal(bool)
     pool_enabled_changed = pyqtSignal(bool)
@@ -24,6 +25,9 @@ class AdminMenu(QFrame):
     def __init__(self, llm_options=None, parent=None):
         super().__init__(parent)
         self.llm_options = llm_options or []
+        self._face_yolo_min = 0.10
+        self._face_yolo_max = 0.90
+        self._face_yolo_step = 0.05
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setStyleSheet(
             "background-color: rgba(45, 35, 25, 245);"
@@ -90,6 +94,29 @@ class AdminMenu(QFrame):
         timeout_row.addWidget(timeout_label)
         timeout_row.addWidget(self.pipeline_timeout_edit, 1)
         general_layout.addLayout(timeout_row)
+
+        self.face_yolo_confidence_label = QLabel("Face-YOLO Confidence")
+        self.face_yolo_confidence_value = QLabel("0.50")
+        self.face_yolo_confidence_slider = self._create_slider(10, 90)
+        self.face_yolo_confidence_slider.setSingleStep(5)
+        self.face_yolo_confidence_slider.setPageStep(5)
+        self.face_yolo_confidence_slider.valueChanged.connect(self._on_face_yolo_confidence_changed)
+        general_layout.addLayout(
+            self._slider_row(
+                self.face_yolo_confidence_label,
+                self.face_yolo_confidence_slider,
+                self.face_yolo_confidence_value
+            )
+        )
+
+        face_yolo_hint = QLabel(
+            "Niedriger = mehr Gesichter erkannt, aber ungenauer\n"
+            "Hoeher = weniger Erkennungen, aber zuverlaessiger\n"
+            "Empfohlen: 0.50"
+        )
+        face_yolo_hint.setStyleSheet("color: rgba(244, 228, 188, 150); font-size: 12px;")
+        face_yolo_hint.setWordWrap(True)
+        general_layout.addWidget(face_yolo_hint)
 
         layout.addWidget(general_box)
 
@@ -271,6 +298,11 @@ class AdminMenu(QFrame):
         self.pipeline_timeout_edit.setText(str(value))
         self.pipeline_timeout_changed.emit(value)
 
+    def _on_face_yolo_confidence_changed(self, slider_value):
+        value = slider_value / 100.0
+        self.face_yolo_confidence_value.setText(f"{value:.2f}")
+        self.face_yolo_confidence_changed.emit(value)
+
     def _on_fullscreen_toggled(self, checked):
         self.fullscreen_button.setText("Vollbild: AN" if checked else "Vollbild: AUS")
         self.fullscreen_toggled.emit(checked)
@@ -307,6 +339,13 @@ class AdminMenu(QFrame):
         self._set_slider_value(self.anim_speed_slider, settings.get("animation_speed", 1))
         self.anim_speed_value.setText(str(self.anim_speed_slider.value()))
         self._set_lineedit_value(self.pipeline_timeout_edit, str(settings.get("pipeline_timeout_seconds", 30)))
+        self._set_slider_value(
+            self.face_yolo_confidence_slider,
+            self._face_yolo_to_slider_value(float(settings.get("face_yolo_confidence", 0.5)))
+        )
+        self.face_yolo_confidence_value.setText(
+            f"{self.face_yolo_confidence_slider.value() / 100.0:.2f}"
+        )
 
         self._set_toggle_button(self.fullscreen_button, settings.get("fullscreen", True))
         self.fullscreen_button.setText("Vollbild: AN" if self.fullscreen_button.isChecked() else "Vollbild: AUS")
@@ -336,6 +375,11 @@ class AdminMenu(QFrame):
         slider.blockSignals(True)
         slider.setValue(int(value))
         slider.blockSignals(False)
+
+    def _face_yolo_to_slider_value(self, value):
+        clamped = max(self._face_yolo_min, min(self._face_yolo_max, float(value)))
+        step_index = round((clamped - self._face_yolo_min) / self._face_yolo_step)
+        return int(round((self._face_yolo_min + step_index * self._face_yolo_step) * 100))
 
     def _set_toggle_button(self, button, checked):
         button.blockSignals(True)

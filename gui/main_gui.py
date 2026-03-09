@@ -73,6 +73,7 @@ class ScalingAkteGUI(QGraphicsView):
         self.wait_time_file_closed = int(self.config.get("wait_time_file_closed", 3))
         self.reset_countdown_seconds = int(self.config.get("reset_countdown_seconds", 3))
         self.pipeline_timeout_seconds = int(self.config.get("pipeline_timeout_seconds", 30))
+        self.face_yolo_confidence = self._get_face_yolo_confidence()
         self.animation_speed = int(self.config.get("animation_speed", 1))
         self.is_fullscreen = bool(self.config.get("fullscreen", True))
         self.developer_mode = bool(self.config.get("developer_mode", False))
@@ -584,6 +585,18 @@ class ScalingAkteGUI(QGraphicsView):
         self.config[key] = value
         self._save_config()
 
+    def _get_face_yolo_confidence(self):
+        face_yolo_cfg = self.config.get("face_yolo", {})
+        if isinstance(face_yolo_cfg, dict):
+            try:
+                return float(face_yolo_cfg.get("confidence", 0.5))
+            except (TypeError, ValueError):
+                pass
+        try:
+            return float(self.config.get("face_yolo_confidence", 0.5))
+        except (TypeError, ValueError):
+            return 0.5
+
     def _update_pipeline_value(self, model_id, key, value):
         entry = self._get_pipeline_entry(model_id)
         if entry is None:
@@ -612,6 +625,7 @@ class ScalingAkteGUI(QGraphicsView):
         self.admin_menu.wait_time_changed.connect(self._on_wait_time_changed)
         self.admin_menu.animation_speed_changed.connect(self._on_animation_speed_changed)
         self.admin_menu.pipeline_timeout_changed.connect(self._on_pipeline_timeout_changed)
+        self.admin_menu.face_yolo_confidence_changed.connect(self._on_face_yolo_confidence_changed)
         self.admin_menu.fullscreen_toggled.connect(self._on_fullscreen_toggled)
         self.admin_menu.developer_mode_toggled.connect(self._on_developer_mode_toggled)
         self.admin_menu.pool_enabled_changed.connect(self._on_pool_enabled_changed)
@@ -633,6 +647,7 @@ class ScalingAkteGUI(QGraphicsView):
             "wait_time_file_closed": self.config.get("wait_time_file_closed", 3),
             "animation_speed": self.config.get("animation_speed", 1),
             "pipeline_timeout_seconds": self.config.get("pipeline_timeout_seconds", 30),
+            "face_yolo_confidence": self._get_face_yolo_confidence(),
             "fullscreen": self.config.get("fullscreen", True),
             "developer_mode": self.config.get("developer_mode", False),
             "pool_enabled": pool.get("enabled", True),
@@ -660,6 +675,17 @@ class ScalingAkteGUI(QGraphicsView):
         self._update_config_value("pipeline_timeout_seconds", self.pipeline_timeout_seconds)
         if self.loading_active:
             self._start_pipeline_timeout()
+
+    def _on_face_yolo_confidence_changed(self, value):
+        self.face_yolo_confidence = max(0.10, min(0.90, float(value)))
+        face_yolo_cfg = self.config.setdefault("face_yolo", {})
+        if not isinstance(face_yolo_cfg, dict):
+            face_yolo_cfg = {}
+            self.config["face_yolo"] = face_yolo_cfg
+        face_yolo_cfg["confidence"] = round(self.face_yolo_confidence, 2)
+        if "face_yolo_confidence" in self.config:
+            del self.config["face_yolo_confidence"]
+        self._save_config()
 
     def _on_fullscreen_toggled(self, enabled):
         self._set_fullscreen(bool(enabled))

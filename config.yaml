@@ -5,6 +5,8 @@ reset_countdown_seconds: 3
 animation_speed: 20
 fullscreen: true
 photo_delay: 3
+face_yolo:
+  confidence: 0.5
 pool:
   enabled: true
   path: ./pool

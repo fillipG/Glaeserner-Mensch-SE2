@@ -32,6 +32,14 @@ class ConfigService:
         config.setdefault("fullscreen", True)
         config.setdefault("developer_mode", False)
         config.setdefault("llm_model", self.default_llm_value)
+        legacy_face_yolo_confidence = config.pop("face_yolo_confidence", None)
+        face_yolo = config.setdefault("face_yolo", {})
+        if not isinstance(face_yolo, dict):
+            face_yolo = {}
+            config["face_yolo"] = face_yolo
+        if legacy_face_yolo_confidence is not None:
+            face_yolo.setdefault("confidence", legacy_face_yolo_confidence)
+        face_yolo.setdefault("confidence", 0.5)
 
         pool = config.setdefault("pool", {})
         if not isinstance(pool, dict):
