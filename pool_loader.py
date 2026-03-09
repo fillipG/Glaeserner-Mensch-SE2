@@ -117,15 +117,23 @@ class PoolLoader:
         if not available:
             return []
 
+        fallback_to_oldest = False
         available = self._apply_cooldown(available)
         if not available:
-            available = list(self.pool_persons)
+            available = self._oldest_cooled_down_persons()
+            fallback_to_oldest = True
 
         if count >= len(available):
             selected = list(available)
-            random.shuffle(selected)
+            if self.cooldown_batches <= 0:
+                random.shuffle(selected)
         else:
-            selected = random.sample(available, count)
+            if self.cooldown_batches <= 0:
+                selected = random.sample(available, count)
+            elif fallback_to_oldest:
+                selected = list(available[:count])
+            else:
+                selected = random.sample(available, count)
 
         self._remember_batch(selected)
         return [copy.deepcopy(person) for person in selected]
@@ -158,3 +166,17 @@ class PoolLoader:
 
         if len(self.recent_batches) > self.cooldown_batches:
             self.recent_batches = self.recent_batches[-self.cooldown_batches:]
+
+    def _oldest_cooled_down_persons(self):
+        if not self.pool_persons:
+            return []
+
+        last_seen_index = {}
+        for index, batch in enumerate(self.recent_batches):
+            for face_id in batch:
+                last_seen_index[face_id] = index
+
+        return sorted(
+            self.pool_persons,
+            key=lambda person: last_seen_index.get(person.get("face_id"), -1)
+        )

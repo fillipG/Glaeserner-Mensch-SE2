@@ -222,6 +222,15 @@ class ScalingAkteGUI(QGraphicsView):
         else:
             self.start_animation()
 
+    @pyqtSlot(str, list)
+    def handle_pipeline_result(self, status, personen_daten):
+        if status == "EMPTY" or not personen_daten:
+            self.hide_loading_indicator()
+            if not self.is_animating:
+                self.show_closed_folder()
+            return
+        self.handle_new_dataset(personen_daten)
+
     def update_descriptions_from_files(self):
         """Scannt den 'final' Ordner und extrahiert die (ggf. mehrzeilige) 'description'."""
         if not self.description_repo.exists():
@@ -607,6 +616,7 @@ class ScalingAkteGUI(QGraphicsView):
         self.admin_menu.developer_mode_toggled.connect(self._on_developer_mode_toggled)
         self.admin_menu.pool_enabled_changed.connect(self._on_pool_enabled_changed)
         self.admin_menu.pool_max_extra_changed.connect(self._on_pool_max_extra_changed)
+        self.admin_menu.pool_cooldown_changed.connect(self._on_pool_cooldown_changed)
         self.admin_menu.moondream_enabled_changed.connect(self._on_moondream_enabled)
         self.admin_menu.moondream_prompt_changed.connect(self._on_moondream_prompt)
         self.admin_menu.deepface_enabled_changed.connect(self._on_deepface_enabled)
@@ -627,6 +637,7 @@ class ScalingAkteGUI(QGraphicsView):
             "developer_mode": self.config.get("developer_mode", False),
             "pool_enabled": pool.get("enabled", True),
             "pool_max_extra_persons": pool.get("max_extra_persons", 3),
+            "pool_cooldown_batches": pool.get("cooldown_batches", 3),
             "moondream_enabled": moondream.get("enabled", True),
             "moondream_prompt": moondream.get("prompt", ""),
             "deepface_enabled": deepface.get("enabled", False),
@@ -664,6 +675,9 @@ class ScalingAkteGUI(QGraphicsView):
     def _on_pool_max_extra_changed(self, value):
         pool_value = max(0, min(3, int(value)))
         self._update_pool_value("max_extra_persons", pool_value)
+
+    def _on_pool_cooldown_changed(self, value):
+        self._update_pool_value("cooldown_batches", max(0, int(value)))
 
     def _on_moondream_enabled(self, enabled):
         self._update_pipeline_value("moondream", "enabled", bool(enabled))

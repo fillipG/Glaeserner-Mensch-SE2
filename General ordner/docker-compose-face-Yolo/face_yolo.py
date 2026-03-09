@@ -5,6 +5,7 @@ from PIL import Image
 import os
 import time
 import yaml
+from fnmatch import fnmatch
 
 # Einstellungen
 INPUT_DIR = "main_image"
@@ -15,6 +16,27 @@ MOONDREAM_INBOX = "moondream_inbox" # Inbox für Moondream
 
 confidence = 0.7  # Ab welcher Konfidenz ein Gesicht erkannt wird
 padding = 40     # Zusätzlicher Rand, verbessert das entfernen des Hintergrunds.
+
+
+def cleanup_previous_batch():
+    # Alte Batch-Artefakte entfernen, damit face1/face2 nicht mit dem neuen Lauf kollidieren
+    targets = {
+        SKETCH_DIR: ["face*.png", "face*.jpg", "face*.jpeg"],
+        DEEPFACE_INBOX: ["face*.png", "face*.jpg", "face*.jpeg"],
+        MOONDREAM_INBOX: ["face*.png", "face*.jpg", "face*.jpeg"],
+        "final": ["face*_*.yaml"],
+    }
+
+    for folder, patterns in targets.items():
+        os.makedirs(folder, exist_ok=True)
+        for name in os.listdir(folder):
+            if any(fnmatch(name.lower(), pattern.lower()) for pattern in patterns):
+                file_path = os.path.join(folder, name)
+                try:
+                    if os.path.isfile(file_path):
+                        os.remove(file_path)
+                except Exception as e:
+                    print(f"  Konnte altes Artefakt nicht löschen: {file_path} ({e})")
 
 # 1. YOLO-Modell laden (einmalig, außerhalb der Schleife)
 model = YOLO("yolov8n-face.pt")
@@ -38,6 +60,9 @@ while True:
         image_name = image_files[0]
         image_path = os.path.join(INPUT_DIR, image_name)
         print(f"Bild gefunden: {image_path} – wird verarbeitet...")
+
+        # Vor dem neuen Lauf alte face-Dateien aus Skizze, Inboxes und final entfernen
+        cleanup_previous_batch()
 
         # Bild laden
         image = cv2.imread(image_path)

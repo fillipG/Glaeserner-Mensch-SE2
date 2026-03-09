@@ -148,7 +148,7 @@ def run_app():
     pipeline_thread = PipelineWorker()
 
     pipeline_thread.result_ready.connect(
-        lambda id, data: window.handle_new_dataset(data),
+        window.handle_pipeline_result,
         Qt.ConnectionType.QueuedConnection
     )
     # Referenz am Fenster-Objekt, damit der Python-Garbage-Collector den Thread nicht löscht, während er noch läuft

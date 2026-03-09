@@ -8,8 +8,8 @@ photo_delay: 3
 pool:
   enabled: true
   path: ./pool
-  max_extra_persons: 1
-  cooldown_batches: 3
+  max_extra_persons: 3
+  cooldown_batches: 2
 pipeline:
 - id: moondream
   name: Visual Description (VLM)

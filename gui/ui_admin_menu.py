@@ -13,6 +13,7 @@ class AdminMenu(QFrame):
     developer_mode_toggled = pyqtSignal(bool)
     pool_enabled_changed = pyqtSignal(bool)
     pool_max_extra_changed = pyqtSignal(int)
+    pool_cooldown_changed = pyqtSignal(int)
     moondream_enabled_changed = pyqtSignal(bool)
     moondream_prompt_changed = pyqtSignal(str)
     deepface_enabled_changed = pyqtSignal(bool)
@@ -136,6 +137,14 @@ class AdminMenu(QFrame):
         self.pool_max_extra_slider.valueChanged.connect(self._on_pool_max_extra_changed)
         pool_layout.addLayout(
             self._slider_row(self.pool_max_extra_label, self.pool_max_extra_slider, self.pool_max_extra_value)
+        )
+
+        self.pool_cooldown_label = QLabel("Cooldown (Durchlaeufe)")
+        self.pool_cooldown_value = QLabel("0")
+        self.pool_cooldown_slider = self._create_slider(0, 10)
+        self.pool_cooldown_slider.valueChanged.connect(self._on_pool_cooldown_changed)
+        pool_layout.addLayout(
+            self._slider_row(self.pool_cooldown_label, self.pool_cooldown_slider, self.pool_cooldown_value)
         )
         layout.addWidget(pool_box)
 
@@ -278,6 +287,10 @@ class AdminMenu(QFrame):
         self.pool_max_extra_value.setText(str(value))
         self.pool_max_extra_changed.emit(value)
 
+    def _on_pool_cooldown_changed(self, value):
+        self.pool_cooldown_value.setText(str(value))
+        self.pool_cooldown_changed.emit(value)
+
     def _on_moondream_prompt_changed(self):
         if self.moondream_prompt is None:
             return
@@ -307,6 +320,8 @@ class AdminMenu(QFrame):
         self.pool_enabled_button.setText("Pool: AN" if self.pool_enabled_button.isChecked() else "Pool: AUS")
         self._set_slider_value(self.pool_max_extra_slider, settings.get("pool_max_extra_persons", 3))
         self.pool_max_extra_value.setText(str(self.pool_max_extra_slider.value()))
+        self._set_slider_value(self.pool_cooldown_slider, settings.get("pool_cooldown_batches", 3))
+        self.pool_cooldown_value.setText(str(self.pool_cooldown_slider.value()))
 
         self._set_checkbox_value(self.moondream_enabled, settings.get("moondream_enabled", True))
         if self.moondream_prompt is not None:

@@ -37,6 +37,7 @@ class PipelineManager(QObject):
         self.results_cache = {}
         self.collected_faces = []
         self.expected_face_count = 0
+        self.last_logged_face_count = None
         self.seen_files = set()
 
         os.makedirs(self.watch_dir, exist_ok=True)
@@ -66,7 +67,13 @@ class PipelineManager(QObject):
                     self.seen_files.clear()
 
                 self.expected_face_count = new_face_count
-                print(f"[LOG] Expecting {self.expected_face_count} faces in total.")
+                if self.last_logged_face_count != self.expected_face_count:
+                    print(f"[LOG] Expecting {self.expected_face_count} faces in total.")
+                    self.last_logged_face_count = self.expected_face_count
+
+                if new_face_count <= 0:
+                    self._handle_empty_batch()
+                    return
 
             # Alle neuen YAML-Dateien scannen
             current_files = {f for f in os.listdir(self.watch_dir) if f.endswith(self.file_ext)}
@@ -200,6 +207,13 @@ class PipelineManager(QObject):
     # =========================================================
     # Fertige Daten an GUI senden
     # =========================================================
+    def _handle_empty_batch(self):
+        if self.expected_face_count != 0:
+            return
+        print("[LOG] No faces detected in the captured image. Resetting batch.")
+        self.data_finalized.emit("EMPTY", [])
+        self.cleanup_folders()
+
     def finalize_and_send_batch(self):
         if not self.collected_faces:
             return
@@ -235,5 +249,6 @@ class PipelineManager(QObject):
         self.results_cache.clear()
         self.collected_faces = []
         self.expected_face_count = 0
+        self.last_logged_face_count = None
 
         print("✨ System reset and ready for next person.")
