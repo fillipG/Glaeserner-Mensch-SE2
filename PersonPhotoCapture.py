@@ -1,3 +1,4 @@
+import math
 import time
 from datetime import datetime
 
@@ -124,7 +125,7 @@ class PersonPhotoCapture:
 
         # Countdown
         if remaining and remaining > 0:
-            text = str(int(remaining) + 1)
+            text = str(max(1, math.ceil(remaining)))
             font_scale, thickness = 6.0, 10
             (text_w, text_h), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)
             cv2.putText(display, text, ((w - text_w)//2, (h + text_h)//2),
@@ -195,7 +196,6 @@ class PersonPhotoCapture:
             if start_time:
                 elapsed = current_time - start_time
                 remaining = self.PHOTO_DELAY_SECONDS - elapsed
-                sec_remaining = int(remaining) + 1
                 if remaining <= 0 and not photo_taken:
                     photo_taken = True
                     if frame_callback:

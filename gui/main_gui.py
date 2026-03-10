@@ -331,12 +331,17 @@ class ScalingAkteGUI(QGraphicsView):
         if not self.active_containers:
             return
 
+        ollama_enabled = bool((self._get_pipeline_entry("ollama") or {}).get("enabled", False))
+
         for i, container in enumerate(self.active_containers):
             if container._last_description_source:
                 continue
 
             new_text = "Keine Daten gefunden. Akte ausstehend."
-            description = self.description_repo.read_moondream_description(i)
+            if ollama_enabled:
+                description = self.description_repo.read_ollama_description(i)
+            else:
+                description = self.description_repo.read_moondream_description(i)
             if description:
                 new_text = description
 
@@ -721,6 +726,8 @@ class ScalingAkteGUI(QGraphicsView):
         self.admin_menu.pool_cooldown_changed.connect(self._on_pool_cooldown_changed)
         self.admin_menu.moondream_enabled_changed.connect(self._on_moondream_enabled)
         self.admin_menu.moondream_prompt_changed.connect(self._on_moondream_prompt)
+        self.admin_menu.ollama_enabled_changed.connect(self._on_ollama_enabled)
+        self.admin_menu.ollama_prompt_changed.connect(self._on_ollama_prompt)
         self.admin_menu.deepface_enabled_changed.connect(self._on_deepface_enabled)
         self.admin_menu.deepface_retinaface_changed.connect(self._on_deepface_retinaface_changed)
         self.admin_menu.fer_enabled_changed.connect(self._on_fer_enabled)
@@ -730,6 +737,7 @@ class ScalingAkteGUI(QGraphicsView):
     def _sync_admin_menu_with_config(self):
         defaults = self.config_service.get_default_admin_settings()
         moondream = self._get_pipeline_entry("moondream") or {}
+        ollama = self._get_pipeline_entry("ollama") or {}
         deepface = self._get_pipeline_entry("deepface") or {}
         fer = self._get_pipeline_entry("fer") or {}
         pool = self.config.get("pool", {})
@@ -756,6 +764,8 @@ class ScalingAkteGUI(QGraphicsView):
             "pool_cooldown_batches": pool.get("cooldown_batches", defaults["pool_cooldown_batches"]),
             "moondream_enabled": moondream.get("enabled", defaults["moondream_enabled"]),
             "moondream_prompt": moondream.get("prompt", defaults["moondream_prompt"]),
+            "ollama_enabled": ollama.get("enabled", defaults["ollama_enabled"]),
+            "ollama_prompt": ollama.get("prompt", defaults["ollama_prompt"]),
             "deepface_enabled": deepface.get("enabled", defaults["deepface_enabled"]),
             "deepface_use_retinaface": deepface.get(
                 "use_retinaface",
@@ -862,6 +872,12 @@ class ScalingAkteGUI(QGraphicsView):
 
     def _on_moondream_prompt(self, text):
         self._update_pipeline_value("moondream", "prompt", text)
+
+    def _on_ollama_enabled(self, enabled):
+        self._update_pipeline_value("ollama", "enabled", bool(enabled))
+
+    def _on_ollama_prompt(self, text):
+        self._update_pipeline_value("ollama", "prompt", text)
 
     def _on_deepface_enabled(self, enabled):
         self._update_pipeline_value("deepface", "enabled", bool(enabled))

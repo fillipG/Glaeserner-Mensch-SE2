@@ -73,7 +73,8 @@ class PoolLoader:
     def _load_pool_person(self, person_dir, folder_name):
         face_path = os.path.join(person_dir, "face.jpg")
         deepface_path = os.path.join(person_dir, "deepface.yaml")
-        moondream_path = os.path.join(person_dir, "moondream.yaml")
+        ollama_path = os.path.join(person_dir, "ollama.yaml")
+        legacy_moondream_path = os.path.join(person_dir, "moondream.yaml")
 
         if not os.path.exists(face_path):
             print(f"[POOL] face.jpg fehlt in {person_dir}")
@@ -81,15 +82,16 @@ class PoolLoader:
         if not os.path.exists(deepface_path):
             print(f"[POOL] deepface.yaml fehlt in {person_dir}")
             return None
-        if not os.path.exists(moondream_path):
-            print(f"[POOL] moondream.yaml fehlt in {person_dir}")
+        description_path = ollama_path if os.path.exists(ollama_path) else legacy_moondream_path
+        if not os.path.exists(description_path):
+            print(f"[POOL] ollama.yaml fehlt in {person_dir} (legacy: moondream.yaml)")
             return None
 
         try:
             with open(deepface_path, "r", encoding="utf-8") as f:
                 deepface_data = yaml.safe_load(f) or {}
-            with open(moondream_path, "r", encoding="utf-8") as f:
-                moondream_data = yaml.safe_load(f) or {}
+            with open(description_path, "r", encoding="utf-8") as f:
+                description_data = yaml.safe_load(f) or {}
         except Exception as exc:
             print(f"[POOL] Fehler beim Laden von {person_dir}: {exc}")
             return None
@@ -98,7 +100,7 @@ class PoolLoader:
             "face_id": f"pool_{folder_name}",
             "face_image_path": face_path,
             "deepface": deepface_data,
-            "moondream": moondream_data,
+            "ollama": description_data,
             "source": "pool",
         }
 

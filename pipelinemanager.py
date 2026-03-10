@@ -25,12 +25,16 @@ class PipelineManager(QObject):
         else:
             self.translator = None
 
-        # Aktive Modelle aus Config
-        self.enabled_models = [cfg for cfg in config_data["pipeline"] if cfg.get("enabled", False)]
+        # Aktive finale Modelle aus Config
+        self.enabled_models = [
+            cfg for cfg in config_data["pipeline"]
+            if cfg.get("enabled", False) and cfg.get("final_output", False)
+        ]
         self.required_ids = [m["id"] for m in self.enabled_models]
 
         # Ordner, der auf neue YAML-Dateien überwacht wird
-        self.watch_dir = os.path.abspath(self.enabled_models[0]["watch_dir"])
+        watch_dir = self.enabled_models[0]["watch_dir"] if self.enabled_models else "./General ordner/final"
+        self.watch_dir = os.path.abspath(watch_dir)
         self.file_ext = ".yaml"
 
         # Interner Speicher für Ergebnisse
@@ -125,9 +129,9 @@ class PipelineManager(QObject):
     def add_to_batch(self, base_id):
         captured_data = self.results_cache.get(base_id, {})
         df_data = captured_data.get("deepface", {})
-        moon_data = captured_data.get("moondream", {})
+        description_data = captured_data.get("ollama", {})
 
-        person_dict = self._build_person_dict(base_id, df_data, moon_data)
+        person_dict = self._build_person_dict(base_id, df_data, description_data)
         self.collected_faces.append(person_dict)
         print(f"--- [COLLECTED] {base_id} ({len(self.collected_faces)}/{self.expected_face_count}) ---")
 
@@ -137,8 +141,8 @@ class PipelineManager(QObject):
     # =========================================================
     # Baut das Dictionary für ein Gesicht
     # =========================================================
-    def _build_person_dict(self, base_id, df_data, moon_data, face_image_path=None, source="real"):
-        beschreibung = moon_data.get("description", "Keine Beschreibung gefunden.")
+    def _build_person_dict(self, base_id, df_data, description_data, face_image_path=None, source="real"):
+        beschreibung = description_data.get("description", "Keine Beschreibung gefunden.")
         if self.translator and self.target_lang == "de":
             beschreibung = self.translator.translate_text(beschreibung)
 
@@ -173,7 +177,7 @@ class PipelineManager(QObject):
                 self._build_person_dict(
                     base_id=pool_person.get("face_id", "pool"),
                     df_data=pool_person.get("deepface", {}),
-                    moon_data=pool_person.get("moondream", {}),
+                    description_data=pool_person.get("ollama", {}),
                     face_image_path=pool_person.get("face_image_path"),
                     source=pool_person.get("source", "pool"),
                 )

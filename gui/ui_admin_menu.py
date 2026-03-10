@@ -19,6 +19,8 @@ class AdminMenu(QFrame):
     pool_cooldown_changed = pyqtSignal(int)
     moondream_enabled_changed = pyqtSignal(bool)
     moondream_prompt_changed = pyqtSignal(str)
+    ollama_enabled_changed = pyqtSignal(bool)
+    ollama_prompt_changed = pyqtSignal(str)
     deepface_enabled_changed = pyqtSignal(bool)
     deepface_retinaface_changed = pyqtSignal(bool)
     fer_enabled_changed = pyqtSignal(bool)
@@ -214,6 +216,12 @@ class AdminMenu(QFrame):
         self.moondream_enabled.toggled.connect(self.moondream_enabled_changed)
         self.moondream_prompt.editingFinished.connect(self._on_moondream_prompt_changed)
 
+        self.ollama_enabled, self.ollama_prompt, _ = self._create_model_block(
+            models_layout, "Ollama", has_prompt=True
+        )
+        self.ollama_enabled.toggled.connect(self.ollama_enabled_changed)
+        self.ollama_prompt.editingFinished.connect(self._on_ollama_prompt_changed)
+
         self.deepface_enabled, _, deepface_layout = self._create_model_block(models_layout, "Deepface")
         self.deepface_enabled.toggled.connect(self.deepface_enabled_changed)
         self.deepface_retinaface = QCheckBox("Verbessertes Analysemodell (RetinaFace)")
@@ -381,6 +389,11 @@ class AdminMenu(QFrame):
             return
         self.moondream_prompt_changed.emit(self.moondream_prompt.text().strip())
 
+    def _on_ollama_prompt_changed(self):
+        if self.ollama_prompt is None:
+            return
+        self.ollama_prompt_changed.emit(self.ollama_prompt.text().strip())
+
     def _on_llm_changed(self, text):
         label_to_value = {opt["label"]: opt["value"] for opt in self.llm_options}
         value = label_to_value.get(text, self.llm_options[0]["value"])
@@ -433,6 +446,9 @@ class AdminMenu(QFrame):
         self._set_checkbox_value(self.moondream_enabled, settings.get("moondream_enabled", True))
         if self.moondream_prompt is not None:
             self._set_lineedit_value(self.moondream_prompt, settings.get("moondream_prompt", ""))
+        self._set_checkbox_value(self.ollama_enabled, settings.get("ollama_enabled", True))
+        if self.ollama_prompt is not None:
+            self._set_lineedit_value(self.ollama_prompt, settings.get("ollama_prompt", ""))
         self._set_checkbox_value(self.deepface_enabled, settings.get("deepface_enabled", False))
         self._set_checkbox_value(self.deepface_retinaface, settings.get("deepface_use_retinaface", True))
         self._set_checkbox_value(self.fer_enabled, settings.get("fer_enabled", False))

@@ -12,26 +12,48 @@ face_yolo:
 pool:
   enabled: true
   path: ./pool
-  max_extra_persons: 3
+  max_extra_persons: 0
   cooldown_batches: 3
 pipeline:
 - id: moondream
   name: Visual Description (VLM)
   enabled: true
-  watch_dir: ./General ordner/final
+  final_output: false
+  watch_dir: ./General ordner/ollama_ai/ollama_inbox
   file_ext: .yaml
   show_preview: true
   prompt: Name the clothing and any accessories the person is wearing. Put in 4 Sentences
+- id: ollama
+  name: Kriminalgeschichte (Ollama)
+  enabled: true
+  final_output: true
+  watch_dir: ./General ordner/final
+  file_ext: .yaml
+  prompt: 'Schreibe einen Kriminalbericht ueber eine fiktive Person.
+
+    Die Personenbeschreibung ist bereits erfolgt. Schreibe nur,
+
+    was die Person verbrochen haben koennte in einem Fliesstext.
+
+    Beachte dabei, dass es sich um ein Verbrechen in der Stasi handelt.
+
+    Die Ausgabe soll nicht mehr als 50 Woerter haben.
+
+    Antworte moeglichst kurz und versuche etwas Lustiges einzubauen.
+
+    Die Story muss nicht erklaert sein. Es reicht ein Verbrechen darzustellen.'
 - id: deepface
   name: Emotionserkennung
   enabled: true
+  final_output: true
   watch_dir: ./General ordner/final
   file_ext: .yaml
   use_retinaface: true
 - id: fer
   name: Emotionserkennung (FER)
   enabled: false
+  final_output: true
   watch_dir: ./General ordner/final
   file_ext: .yaml
-llm_model: llama3.2:1b
-pipeline_timeout_seconds: 120
+llm_model: phi3:3.8b
+pipeline_timeout_seconds: 1000

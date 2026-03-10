@@ -170,6 +170,7 @@ def run_app():
         "General ordner/final",
         "General ordner/main_image",
         "General ordner/sketch",
+        "General ordner/ollama_ai/ollama_inbox",
         "General ordner/docker-compose-deepface/deepface_inbox",
         "General ordner/moondream_ai/moondream_inbox",
     ]

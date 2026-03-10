@@ -26,6 +26,15 @@ class ConfigService:
             yaml.safe_dump(config, f, sort_keys=False, allow_unicode=False)
 
     def get_default_config(self):
+        ollama_prompt = (
+            "Schreibe einen Kriminalbericht ueber eine fiktive Person.\n"
+            "Die Personenbeschreibung ist bereits erfolgt. Schreibe nur,\n"
+            "was die Person verbrochen haben koennte in einem Fliesstext.\n"
+            "Beachte dabei, dass es sich um ein Verbrechen in der Stasi handelt.\n"
+            "Die Ausgabe soll nicht mehr als 50 Woerter haben.\n"
+            "Antworte moeglichst kurz und versuche etwas Lustiges einzubauen.\n"
+            "Die Story muss nicht erklaert sein. Es reicht ein Verbrechen darzustellen."
+        )
         return {
             "language": "de",
             "photo_delay": 3,
@@ -52,16 +61,27 @@ class ConfigService:
                     "id": "moondream",
                     "name": "Visual Description (VLM)",
                     "enabled": True,
-                    "watch_dir": "./final",
+                    "final_output": False,
+                    "watch_dir": "./General ordner/ollama_ai/ollama_inbox",
                     "file_ext": ".yaml",
                     "show_preview": True,
                     "prompt": "Name the clothing and any accessories the person is wearing. Put in 4 Sentences",
                 },
                 {
+                    "id": "ollama",
+                    "name": "Kriminalgeschichte (Ollama)",
+                    "enabled": True,
+                    "final_output": True,
+                    "watch_dir": "./General ordner/final",
+                    "file_ext": ".yaml",
+                    "prompt": ollama_prompt,
+                },
+                {
                     "id": "deepface",
                     "name": "Emotionserkennung",
                     "enabled": True,
-                    "watch_dir": "./final",
+                    "final_output": True,
+                    "watch_dir": "./General ordner/final",
                     "file_ext": ".yaml",
                     "use_retinaface": True,
                 },
@@ -69,7 +89,8 @@ class ConfigService:
                     "id": "fer",
                     "name": "Emotionserkennung (FER)",
                     "enabled": False,
-                    "watch_dir": "./final",
+                    "final_output": True,
+                    "watch_dir": "./General ordner/final",
                     "file_ext": ".yaml",
                 },
             ],
@@ -93,6 +114,8 @@ class ConfigService:
             "pool_cooldown_batches": pool_defaults["cooldown_batches"],
             "moondream_enabled": pipeline_defaults["moondream"]["enabled"],
             "moondream_prompt": pipeline_defaults["moondream"]["prompt"],
+            "ollama_enabled": pipeline_defaults["ollama"]["enabled"],
+            "ollama_prompt": pipeline_defaults["ollama"]["prompt"],
             "deepface_enabled": pipeline_defaults["deepface"]["enabled"],
             "deepface_use_retinaface": pipeline_defaults["deepface"]["use_retinaface"],
             "fer_enabled": pipeline_defaults["fer"]["enabled"],
@@ -152,6 +175,7 @@ class ConfigService:
         self._merge_pipeline_defaults(config, defaults["pipeline"])
         for model_id, keys in {
             "moondream": ("enabled", "prompt"),
+            "ollama": ("enabled", "prompt"),
             "deepface": ("enabled", "use_retinaface"),
             "fer": ("enabled",),
         }.items():
