@@ -270,3 +270,16 @@ class PersonPhotoCapture:
 
         person_present, _ = self._detect_person(frame)
         return person_present
+
+    def take_photo(self, save_path):
+        """
+        Macht sofort ein Foto und speichert es unter save_path.
+        """
+        frame = self._read_frame()
+        if frame is None:
+            print("Konnte kein Bild aufnehmen.")
+            return None
+        else:
+            print("Foto aufgenommen.")
+            return frame
+
