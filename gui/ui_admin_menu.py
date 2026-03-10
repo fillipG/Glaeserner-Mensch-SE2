@@ -6,7 +6,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 
 class AdminMenu(QFrame):
     """Admin-Menue mit Anzeige- und Slider-Elementen."""
-    wait_time_changed = pyqtSignal(int)
+    photo_delay_changed = pyqtSignal(int)
     close_on_no_person_enabled_changed = pyqtSignal(bool)
     close_on_no_person_changed = pyqtSignal(int)
     animation_speed_changed = pyqtSignal(int)
@@ -71,11 +71,13 @@ class AdminMenu(QFrame):
         general_box = self._create_group_box()
         general_layout = QVBoxLayout(general_box)
 
-        self.wait_time_label = QLabel("Wartezeit (Sek.)")
-        self.wait_time_value = QLabel("1 s")
-        self.wait_time_slider = self._create_slider(1, 60)
-        self.wait_time_slider.valueChanged.connect(self._on_wait_time_changed)
-        general_layout.addLayout(self._slider_row(self.wait_time_label, self.wait_time_slider, self.wait_time_value))
+        self.photo_delay_label = QLabel("Wartezeit (Sek.)")
+        self.photo_delay_value = QLabel("1 s")
+        self.photo_delay_slider = self._create_slider(1, 60)
+        self.photo_delay_slider.valueChanged.connect(self._on_photo_delay_changed)
+        general_layout.addLayout(
+            self._slider_row(self.photo_delay_label, self.photo_delay_slider, self.photo_delay_value)
+        )
 
         self.close_on_no_person_button = QPushButton("Auto-Close: AN")
         self.close_on_no_person_button.setCheckable(True)
@@ -316,9 +318,9 @@ class AdminMenu(QFrame):
         parent_layout.addWidget(block)
         return enabled_box, prompt_edit, layout
 
-    def _on_wait_time_changed(self, value):
-        self.wait_time_value.setText(f"{value} s")
-        self.wait_time_changed.emit(value)
+    def _on_photo_delay_changed(self, value):
+        self.photo_delay_value.setText(f"{value} s")
+        self.photo_delay_changed.emit(value)
 
     def _on_close_on_no_person_changed(self, value):
         rounded_value = max(5, min(60, int(round(value / 5.0) * 5)))
@@ -385,8 +387,8 @@ class AdminMenu(QFrame):
         self.llm_model_changed.emit(value)
 
     def apply_settings(self, settings):
-        self._set_slider_value(self.wait_time_slider, settings.get("wait_time_file_closed", 3))
-        self.wait_time_value.setText(f"{self.wait_time_slider.value()} s")
+        self._set_slider_value(self.photo_delay_slider, settings.get("photo_delay", 3))
+        self.photo_delay_value.setText(f"{self.photo_delay_slider.value()} s")
         self._set_toggle_button(
             self.close_on_no_person_button,
             settings.get("close_on_no_person_enabled", True)

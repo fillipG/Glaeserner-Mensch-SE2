@@ -28,7 +28,7 @@ class ConfigService:
     def get_default_config(self):
         return {
             "language": "de",
-            "wait_time_file_closed": 3,
+            "photo_delay": 3,
             "reset_countdown_seconds": 3,
             "close_on_no_person_enabled": True,
             "close_on_no_person_seconds": 10,
@@ -80,7 +80,7 @@ class ConfigService:
         pipeline_defaults = {entry["id"]: entry for entry in defaults["pipeline"]}
         pool_defaults = defaults["pool"]
         return {
-            "wait_time_file_closed": defaults["wait_time_file_closed"],
+            "photo_delay": defaults["photo_delay"],
             "close_on_no_person_enabled": defaults["close_on_no_person_enabled"],
             "close_on_no_person_seconds": defaults["close_on_no_person_seconds"],
             "animation_speed": defaults["animation_speed"],
@@ -101,6 +101,10 @@ class ConfigService:
 
     def ensure_defaults(self, config):
         # Fehlende Standardwerte ergaenzen, ohne bestehende Laufzeitwerte zu ueberschreiben.
+        legacy_wait_time_file_closed = config.pop("wait_time_file_closed", None)
+        if legacy_wait_time_file_closed is not None:
+            config["photo_delay"] = legacy_wait_time_file_closed
+
         legacy_face_yolo_confidence = config.pop("face_yolo_confidence", None)
         if legacy_face_yolo_confidence is not None:
             face_yolo = config.get("face_yolo")
@@ -121,7 +125,7 @@ class ConfigService:
         defaults = self.get_default_config()
         pipeline_defaults = {entry["id"]: entry for entry in defaults["pipeline"]}
 
-        config["wait_time_file_closed"] = defaults["wait_time_file_closed"]
+        config["photo_delay"] = defaults["photo_delay"]
         config["close_on_no_person_enabled"] = defaults["close_on_no_person_enabled"]
         config["close_on_no_person_seconds"] = defaults["close_on_no_person_seconds"]
         config["animation_speed"] = defaults["animation_speed"]

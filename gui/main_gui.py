@@ -455,7 +455,7 @@ class ScalingAkteGUI(QGraphicsView):
         cam_label_proxy.setPos(cam_x, cam_y - 35)
         cam_label_proxy.setZValue(11)
 
-        self.wait_timer_item = CircularTimerItem(self.wait_time_file_closed, diameter=240)
+        self.wait_timer_item = CircularTimerItem(self.photo_delay, diameter=240)
         self.scene.addItem(self.wait_timer_item)
         self.wait_timer_item.hide()
         self.wait_timer_item.setPos(SCENE_WIDTH - self.wait_timer_item.diameter - 450,
@@ -489,7 +489,7 @@ class ScalingAkteGUI(QGraphicsView):
         if self.developer_mode:
             self.start_animation()
             return
-        duration = max(1, int(self.wait_time_file_closed))
+        duration = max(1, int(self.photo_delay))
         self._wait_duration_s = duration
         self._wait_start_time = time.perf_counter()
         if self.wait_timer_item is None:
@@ -708,7 +708,7 @@ class ScalingAkteGUI(QGraphicsView):
             pipeline.request_pool_reload()
 
     def _connect_admin_menu(self):
-        self.admin_menu.wait_time_changed.connect(self._on_wait_time_changed)
+        self.admin_menu.photo_delay_changed.connect(self._on_photo_delay_changed)
         self.admin_menu.close_on_no_person_enabled_changed.connect(self._on_close_on_no_person_enabled_changed)
         self.admin_menu.close_on_no_person_changed.connect(self._on_close_on_no_person_changed)
         self.admin_menu.animation_speed_changed.connect(self._on_animation_speed_changed)
@@ -734,7 +734,7 @@ class ScalingAkteGUI(QGraphicsView):
         fer = self._get_pipeline_entry("fer") or {}
         pool = self.config.get("pool", {})
         settings = {
-            "wait_time_file_closed": self.config.get("wait_time_file_closed", defaults["wait_time_file_closed"]),
+            "photo_delay": self.config.get("photo_delay", defaults["photo_delay"]),
             "close_on_no_person_enabled": self.config.get(
                 "close_on_no_person_enabled",
                 defaults["close_on_no_person_enabled"]
@@ -768,7 +768,7 @@ class ScalingAkteGUI(QGraphicsView):
 
     def _apply_runtime_settings_from_config(self):
         defaults = self.config_service.get_default_config()
-        self.wait_time_file_closed = int(self.config.get("wait_time_file_closed", defaults["wait_time_file_closed"]))
+        self.photo_delay = int(self.config.get("photo_delay", defaults["photo_delay"]))
         self.reset_countdown_seconds = int(
             self.config.get("reset_countdown_seconds", defaults["reset_countdown_seconds"])
         )
@@ -801,9 +801,9 @@ class ScalingAkteGUI(QGraphicsView):
         self._reload_pool_settings()
         self._sync_admin_menu_with_config()
 
-    def _on_wait_time_changed(self, value):
-        self.wait_time_file_closed = int(value)
-        self._update_config_value("wait_time_file_closed", self.wait_time_file_closed)
+    def _on_photo_delay_changed(self, value):
+        self.photo_delay = int(value)
+        self._update_config_value("photo_delay", self.photo_delay)
 
     def _on_close_on_no_person_enabled_changed(self, enabled):
         self.close_on_no_person_enabled = bool(enabled)
