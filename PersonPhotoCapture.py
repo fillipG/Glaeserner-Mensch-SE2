@@ -7,9 +7,11 @@ from ultralytics import YOLO
 
 class PersonPhotoCapture:
     """
-    Teilt Kameraarbeit in zwei Modi:
-    - capture_mode: volle Foto-Logik mit Countdown und Preview
-    - presence_mode: einzelne, leichte Praesenzpruefung ohne Preview
+    Kamera-Manager mit zwei Modi:
+    1. capture_mode: voller Aufnahme-Modus mit Countdown und optionaler Vorschau
+    2. presence_mode: schnelle Präsenzprüfung ohne Countdown oder Preview
+
+    Außerdem: take_photo() für sofortiges Einzelbild ohne Speicherung
     """
 
     def __init__(self, photo_delay=3, lost_tolerance=1.5):
@@ -21,47 +23,49 @@ class PersonPhotoCapture:
         self.model = YOLO("yolov8n-pose.pt")
         print("YOLO Modell geladen.")
 
-    # Runtime-Werte koennen vom Worker vor jedem Zyklus nachgeladen werden.
+    # ----------------------------
+    # Runtime-Konfiguration
+    # ----------------------------
     def update_runtime_config(self, photo_delay=None):
+        """Ändert Foto-Delay zur Laufzeit"""
         if photo_delay is not None:
             self.PHOTO_DELAY_SECONDS = int(photo_delay)
 
-    # Die Kamera bleibt pro Modus wiederverwendbar offen, bis sie explizit freigegeben wird.
+    # ----------------------------
+    # Kamerazugriff
+    # ----------------------------
     def ensure_camera_open(self):
+        """Öffnet Kamera, falls nicht schon offen"""
         if self._cap is not None and self._cap.isOpened():
             return self._cap
 
-        print("Versuche Kamera zu oeffnen...")
         for index in [0, 1, 2]:
             print(f"Teste Kamera Index {index}...")
             cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
             time.sleep(0.3)
-
-            print(f"isOpened (Index {index}):", cap.isOpened())
             if cap.isOpened():
-                print(f"[{datetime.now()}] Kamera erfolgreich geoeffnet! (Index {index})")
-                print("Frame Width:", cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                print("Frame Height:", cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                print(f"[{datetime.now()}] Kamera geöffnet (Index {index})")
                 self._cap = cap
                 return self._cap
-
-            print(f"[{datetime.now()}] Kamera Index {index} nicht verfuegbar.")
             cap.release()
 
         print("Keine Kamera gefunden!")
         return None
 
     def release_camera(self):
-        if self._cap is not None:
+        """Schließt die Kamera sauber"""
+        if self._cap:
             self._cap.release()
             self._cap = None
 
-    # Gemeinsamer Frame-Leser fuer Capture- und Presence-Modus.
+    # ----------------------------
+    # Frame lesen
+    # ----------------------------
     def _read_frame(self):
+        """Liest einen Frame von der Kamera"""
         cap = self.ensure_camera_open()
-        if cap is None:
+        if not cap:
             return None
-
         ret, frame = cap.read()
         if not ret:
             print("Fehler beim Lesen des Frames")
@@ -69,33 +73,33 @@ class PersonPhotoCapture:
             return None
         return frame
 
-    # Trennt zwischen "Person ist da" und "Person ist frontal genug fuer den Countdown".
+    # ----------------------------
+    # Personenerkennung
+    # ----------------------------
     def _detect_person(self, frame):
+        """
+        Prüft:
+        - person_present: ist überhaupt eine Person sichtbar?
+        - person_valid: frontal, stabil, Augen/Schultern gut sichtbar
+        """
         frame_h, frame_w = frame.shape[:2]
-        person_present = False
-        person_valid = False
+        person_present, person_valid = False, False
 
         results = self.model(frame, conf=0.6, verbose=False)
-        result = results[0]
-        if result.keypoints is None or len(result.keypoints.xy) == 0:
+        if not results or results[0].keypoints is None or len(results[0].keypoints.xy) == 0:
             return person_present, person_valid
 
         person_present = True
-        person = result.keypoints.xy[0]
-        confs = result.keypoints.conf[0]
+        person = results[0].keypoints.xy[0]
+        confs = results[0].keypoints.conf[0]
         if len(person) <= 16:
             return person_present, person_valid
 
-        head = person[0]
-        left_eye = person[1]
-        right_eye = person[2]
-        left_shoulder = person[5]
-        right_shoulder = person[6]
+        # Keypoints
+        head, left_eye, right_eye = person[0], person[1], person[2]
+        left_shoulder, right_shoulder = person[5], person[6]
 
-        head_visible = (
-            head[0] > 20 and head[0] < frame_w - 20 and
-            head[1] > 20 and head[1] < frame_h - 20
-        )
+        head_visible = 20 < head[0] < frame_w - 20 and 20 < head[1] < frame_h - 20
         eyes_confident = confs[1] > 0.5 and confs[2] > 0.5
         shoulders_confident = confs[5] > 0.5 and confs[6] > 0.5
         eyes_level = abs(left_eye[1] - right_eye[1]) < 20
@@ -104,75 +108,48 @@ class PersonPhotoCapture:
         face_ratio_valid = False
         if shoulder_width > 0:
             eye_distance = abs(left_eye[0] - right_eye[0])
-            ratio = eye_distance / shoulder_width
-            face_ratio_valid = 0.2 < ratio < 0.6
+            face_ratio_valid = 0.2 < (eye_distance / shoulder_width) < 0.6
 
         if head_visible and eyes_confident and shoulders_confident and eyes_level and face_ratio_valid:
             person_valid = True
 
         return person_present, person_valid
 
-    # Preview-Overlays werden nur im Capture-Modus gezeichnet.
+    # ----------------------------
+    # Preview Overlay (optional)
+    # ----------------------------
     def _emit_capture_preview(self, frame, remaining, person_valid):
         display = frame.copy()
-        height, width = display.shape[:2]
+        h, w = display.shape[:2]
 
-        if remaining is not None and remaining > 0:
-            sec_remaining = int(remaining) + 1
-            text = str(sec_remaining)
+        # Countdown
+        if remaining and remaining > 0:
+            text = str(int(remaining) + 1)
             font_scale, thickness = 6.0, 10
             (text_w, text_h), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)
-            center_x = (width - text_w) // 2
-            center_y = (height + text_h) // 2
-            cv2.putText(
-                display,
-                text,
-                (center_x + 4, center_y + 4),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                font_scale,
-                (0, 0, 0),
-                thickness + 4,
-                cv2.LINE_AA,
-            )
-            cv2.putText(
-                display,
-                text,
-                (center_x, center_y),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                font_scale,
-                (30, 200, 255),
-                thickness,
-                cv2.LINE_AA,
-            )
+            cv2.putText(display, text, ((w - text_w)//2, (h + text_h)//2),
+                        cv2.FONT_HERSHEY_SIMPLEX, font_scale, (30, 200, 255), thickness, cv2.LINE_AA)
+        # Hinweis, wenn Person nicht frontal
         elif not person_valid:
             hint = "Bitte in die Kamera schauen"
             font_scale, thickness = 1.0, 2
             (text_w, text_h), _ = cv2.getTextSize(hint, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)
-            text_x = (width - text_w) // 2
-            text_y = height - 30
-            cv2.rectangle(
-                display,
-                (text_x - 10, text_y - text_h - 8),
-                (text_x + text_w + 10, text_y + 8),
-                (20, 20, 20),
-                -1,
-            )
-            cv2.putText(
-                display,
-                hint,
-                (text_x, text_y),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                font_scale,
-                (80, 220, 255),
-                thickness,
-                cv2.LINE_AA,
-            )
+            text_x, text_y = (w - text_w)//2, h - 30
+            cv2.rectangle(display, (text_x-10, text_y-text_h-8), (text_x+text_w+10, text_y+8), (20,20,20), -1)
+            cv2.putText(display, hint, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (80,220,255), thickness)
 
         return display
 
+    # ----------------------------
+    # Capture-Modus
+    # ----------------------------
     def capture_mode(self, frame_callback=None, stop_requested_getter=None, mode_active_getter=None):
         """
-        Voller Aufnahme-Modus mit Live-Preview, Stabilitaetspruefung und Foto-Countdown.
+        Voller Aufnahme-Modus mit:
+        - Live-Preview
+        - Stabilitätsprüfung
+        - Countdown
+        Gibt das Foto per return zurück.
         """
         photo_taken = False
         start_time = None
@@ -182,12 +159,10 @@ class PersonPhotoCapture:
         absence_logged = False
         stable_time_required = 0.7
 
-        print("Starte Personenerkennung...")
-
         while True:
-            if stop_requested_getter is not None and stop_requested_getter():
+            if stop_requested_getter and stop_requested_getter():
                 break
-            if mode_active_getter is not None and not mode_active_getter():
+            if mode_active_getter and not mode_active_getter():
                 break
 
             frame = self._read_frame()
@@ -201,67 +176,48 @@ class PersonPhotoCapture:
                 last_person_seen = current_time
                 absence_logged = False
 
-            # Erst stabile Frontalerkennung startet den eigentlichen Foto-Countdown.
+            # Stabilität prüfen
             if person_valid:
                 if person_stable_since is None:
                     person_stable_since = current_time
                 if (current_time - person_stable_since) >= stable_time_required and start_time is None:
-                    print("Person stabil frontal erkannt -> Countdown startet")
                     start_time = current_time
             else:
                 person_stable_since = None
-                if last_person_seen is not None:
-                    time_since_seen = current_time - last_person_seen
-                    if not person_present and not absence_logged and time_since_seen <= self.PERSON_LOST_TOLERANCE:
-                        remaining_tolerance = max(0.0, self.PERSON_LOST_TOLERANCE - time_since_seen)
-                        print(
-                            f"Person kurz verloren -> warte noch {remaining_tolerance:.1f}s "
-                            f"bis Countdown-Reset"
-                        )
-                        absence_logged = True
-                    if not person_present and time_since_seen > self.PERSON_LOST_TOLERANCE:
-                        print("Person zu lange verloren -> Countdown wird zurueckgesetzt")
-                        start_time = None
-                        last_person_seen = None
-                        last_reported = None
-                        absence_logged = False
+                if last_person_seen and current_time - last_person_seen > self.PERSON_LOST_TOLERANCE:
+                    start_time = None
+                    last_person_seen = None
+                    last_reported = None
+                    absence_logged = False
 
+            # Countdown
             remaining = None
-            # Der Countdown laeuft erst nach stabiler Freigabe und endet direkt mit dem Foto-Frame.
-            if start_time is not None:
+            if start_time:
                 elapsed = current_time - start_time
                 remaining = self.PHOTO_DELAY_SECONDS - elapsed
                 sec_remaining = int(remaining) + 1
-                if remaining > 0 and sec_remaining != last_reported:
-                    print(f"Foto in: {sec_remaining} Sekunden...")
-                    last_reported = sec_remaining
-                elif remaining <= 0 and not photo_taken:
+                if remaining <= 0 and not photo_taken:
                     photo_taken = True
-                    if frame_callback is not None:
-                        try:
-                            # Das letzte Preview-Bild fuer die Analyse bleibt ohne Countdown-Overlay stehen.
-                            frame_callback(frame.copy())
-                        except Exception:
-                            pass
-                    print(f"[{datetime.now()}] FOTO AUFGENOMMEN!")
+                    if frame_callback:
+                        frame_callback(frame.copy())
                     return frame
 
-            if frame_callback is not None:
-                try:
-                    frame_callback(self._emit_capture_preview(frame, remaining, person_valid))
-                except Exception:
-                    pass
+            # Preview Callback
+            if frame_callback:
+                frame_callback(self._emit_capture_preview(frame, remaining, person_valid))
 
             time.sleep(0.01)
 
         return None
 
-    # Presence-Modus prueft nur einmal, ob noch jemand da ist, ohne Preview oder Countdown.
+    # ----------------------------
+    # Presence-Modus
+    # ----------------------------
     def presence_mode(self, stop_requested_getter=None):
         """
-        Leichte Praesenzpruefung fuer Auto-Close. Kein Countdown, kein Preview.
+        Prüft, ob eine Person vorhanden ist, ohne Countdown oder Preview.
         """
-        if stop_requested_getter is not None and stop_requested_getter():
+        if stop_requested_getter and stop_requested_getter():
             return None
 
         frame = self._read_frame()
@@ -271,15 +227,16 @@ class PersonPhotoCapture:
         person_present, _ = self._detect_person(frame)
         return person_present
 
-    def take_photo(self, save_path):
+    # ----------------------------
+    # Einfaches Sofort-Foto
+    # ----------------------------
+    def take_photo(self):
         """
-        Macht sofort ein Foto und speichert es unter save_path.
+        Macht sofort ein Foto und gibt es als numpy-Array zurück.
         """
         frame = self._read_frame()
         if frame is None:
             print("Konnte kein Bild aufnehmen.")
             return None
-        else:
-            print("Foto aufgenommen.")
-            return frame
-
+        print("Foto aufgenommen.")
+        return frame
