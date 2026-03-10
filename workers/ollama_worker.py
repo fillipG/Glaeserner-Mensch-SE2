@@ -3,7 +3,6 @@ import re
 import time
 from pathlib import Path
 
-import ollama
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -23,6 +22,8 @@ def load_config():
 
 
 def load_ollama_config():
+    # Der Worker nutzt dieselbe Config-Datei wie die GUI, damit ein Toggle von Ollama
+    # direkt in der naechsten Scan-Runde wirksam wird.
     config = load_config()
     for model_cfg in config.get("pipeline", []):
         if model_cfg.get("id") == "ollama":
@@ -48,7 +49,6 @@ def build_ollama_prompt(moondream_data, prompt_template):
 
 def process_file(filename, worker_config):
     file_path = INPUT_DIR / filename
-    output_path = PROCESSED_DIR / filename
 
     try:
         with open(file_path, "r", encoding="utf-8") as f:
@@ -62,10 +62,16 @@ def process_file(filename, worker_config):
         print(f"[OLLAMA] Kein Prompt konfiguriert, ueberspringe {filename}")
         return False
 
+    # Wenn Ollama deaktiviert ist, wird die Moondream-Beschreibung nicht verworfen,
+    # sondern als finales YAML in den final-Ordner durchgereicht.
+    if not worker_config.get("enabled", True):
+        return process_file_passthrough(filename, moondream_data)
+
     prompt = build_ollama_prompt(moondream_data, prompt_template)
     model_name = worker_config.get("model", DEFAULT_MODEL) or DEFAULT_MODEL
 
     try:
+        import ollama
         response = ollama.chat(
             model=model_name,
             messages=[{"role": "user", "content": prompt}],
@@ -82,6 +88,27 @@ def process_file(filename, worker_config):
         "description": description,
     }
 
+    return write_output_and_cleanup(file_path, PROCESSED_DIR / filename, output_data)
+
+
+def process_file_passthrough(filename, moondream_data):
+    base_name = Path(filename).stem
+    if base_name.endswith("_ollama"):
+        base_name = base_name[:-7]
+
+    output_path = PROCESSED_DIR / f"{base_name}_moondream.yaml"
+    output_data = {
+        "prompt": moondream_data.get("moondream_prompt", ""),
+        "description": moondream_data.get("moondream_description", ""),
+        "source_model": "moondream",
+    }
+    print(f"[{base_name.upper()}] OLLAMA disabled, forwarding MOONDREAM to FINAL")
+    return write_output_and_cleanup(INPUT_DIR / filename, output_path, output_data)
+
+
+def write_output_and_cleanup(file_path, output_path, output_data):
+    # Erst nach erfolgreichem Schreiben wird die Inbox-Datei geloescht, damit der naechste
+    # Schritt nie auf ein halbfertiges oder verlorenes Ergebnis zeigt.
     try:
         with open(output_path, "w", encoding="utf-8") as f:
             yaml.dump(output_data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
@@ -94,7 +121,7 @@ def process_file(filename, worker_config):
     try:
         os.remove(file_path)
     except OSError as exc:
-        print(f"[OLLAMA] Konnte Inbox-Datei {filename} nicht loeschen: {exc}")
+        print(f"[OLLAMA] Konnte Inbox-Datei {Path(file_path).name} nicht loeschen: {exc}")
     return True
 
 
@@ -102,14 +129,12 @@ print(f"[OLLAMA] Worker aktiv. Ueberwache: {INPUT_DIR}")
 
 while True:
     worker_config = load_ollama_config()
-    if not worker_config.get("enabled", True):
-        time.sleep(2)
-        continue
 
     try:
         INPUT_DIR.mkdir(parents=True, exist_ok=True)
         PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
         files = os.listdir(INPUT_DIR)
+        # Der Worker reagiert nur auf vollstaendig von Moondream geschriebene Zwischen-YAMLs.
         valid_files = [
             file_name for file_name in files
             if file_name.lower().endswith(".yaml") and re.match(r"^face\d+_ollama\.yaml$", file_name, re.IGNORECASE)

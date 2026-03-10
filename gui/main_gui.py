@@ -2,9 +2,10 @@ import os
 import sys
 import cv2
 import time
+import shutil
 
 from PyQt6.QtWidgets import (QApplication, QGraphicsView, QGraphicsScene,
-                             QLabel, QFrame, QPushButton)
+                             QLabel, QFrame, QPushButton, QMessageBox)
 from PyQt6.QtGui import QPixmap, QFont, QColor, QPainter, QImage, QPen
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, pyqtSlot
 from sketch import create_advanced_sketch
@@ -28,6 +29,9 @@ PERSONEN_DATEN = [
 ]
 
 LLM_OPTIONS = [
+    {"label": "Ollama - qwen3 4b (aktuell)", "value": "qwen3:4b"},
+    {"label": "Ollama - gemma3 1b (aktuell, leicht)", "value": "gemma3:1b"},
+    {"label": "Ollama - gemma3 4b (aktuell, stark)", "value": "gemma3:4b"},
     {"label": "Ollama - qwen2.5 3b (empfohlen)", "value": "qwen2.5:3b"},
     {"label": "Ollama - llama3.2 3b", "value": "llama3.2:3b"},
     {"label": "Ollama - llama3.2 1b (schnell)", "value": "llama3.2:1b"},
@@ -76,6 +80,7 @@ class ScalingAkteGUI(QGraphicsView):
         self._reset_button_empty_path = PATHS["reset_button_empty"]
         self._reset_button_original_pixmap = None
         self._reset_countdown_item = None
+        self._clear_pipeline_outputs_on_close = False
 
         self.config_service = ConfigService(default_llm_value=LLM_OPTIONS[0]["value"])
         self.config = self._load_config()
@@ -282,6 +287,13 @@ class ScalingAkteGUI(QGraphicsView):
         self._set_reset_button_warning(True)
 
     def close_folder(self, reason: str = "", animated: bool = True):
+        self._clear_pipeline_outputs_on_close = reason in {
+            "manual",
+            "manual_countdown",
+            "auto_close",
+            "pipeline_timeout",
+            "empty_result",
+        }
         if self.is_animating:
             self._pending_close = {"reason": reason, "animated": animated}
             return
@@ -294,6 +306,27 @@ class ScalingAkteGUI(QGraphicsView):
             return
 
         self.show_closed_folder()
+
+    def _clear_pipeline_output_dirs(self):
+        # Beim bewussten Ruecksprung werden alte Pipeline-Ergebnisse entfernt,
+        # damit der naechste Durchlauf nicht auf Restdateien aus dem vorherigen Batch trifft.
+        cleanup_dirs = [
+            PATHS["final_dir"],
+            os.path.join("General ordner", "ollama_ai", "ollama_inbox"),
+        ]
+        for folder in cleanup_dirs:
+            if not os.path.exists(folder):
+                continue
+            for entry in os.listdir(folder):
+                entry_path = os.path.join(folder, entry)
+                try:
+                    if os.path.isfile(entry_path) or os.path.islink(entry_path):
+                        os.unlink(entry_path)
+                    elif os.path.isdir(entry_path):
+                        shutil.rmtree(entry_path)
+                except Exception as exc:
+                    if self.developer_mode:
+                        print(f"Close-Cleanup konnte {entry_path} nicht loeschen: {exc}")
 
     @pyqtSlot(list)
     def handle_new_dataset(self, personen_daten):
@@ -423,6 +456,9 @@ class ScalingAkteGUI(QGraphicsView):
         self.close_folder(reason="auto_close")
 
     def show_closed_folder(self):
+        if self._clear_pipeline_outputs_on_close:
+            self._clear_pipeline_output_dirs()
+            self._clear_pipeline_outputs_on_close = False
         self._is_open = False
         self._set_state(GUIState.IDLE)
         self.camera_pixmap_item = None
@@ -714,6 +750,25 @@ class ScalingAkteGUI(QGraphicsView):
         if pipeline is not None and hasattr(pipeline, "request_pool_reload"):
             pipeline.request_pool_reload()
 
+    def _reload_pipeline_settings(self):
+        pipeline = getattr(self, "_pipeline", None)
+        if pipeline is not None and hasattr(pipeline, "request_pipeline_reload"):
+            pipeline.request_pipeline_reload()
+
+    def _sync_local_ollama_worker_state(self):
+        worker_manager = getattr(self, "_local_worker_manager", None)
+        if worker_manager is None:
+            return
+        try:
+            worker_manager.sync_ollama_worker_state()
+        except RuntimeError as exc:
+            error_message = (
+                "Der lokale Ollama-Worker konnte nicht aktualisiert werden.\n\n"
+                f"{exc}"
+            )
+            print(error_message)
+            QMessageBox.critical(self, "Ollama-Start fehlgeschlagen", error_message)
+
     def _connect_admin_menu(self):
         self.admin_menu.photo_delay_changed.connect(self._on_photo_delay_changed)
         self.admin_menu.close_on_no_person_enabled_changed.connect(self._on_close_on_no_person_enabled_changed)
@@ -811,6 +866,8 @@ class ScalingAkteGUI(QGraphicsView):
         if self.loading_active:
             self._start_pipeline_timeout()
         self._reload_pool_settings()
+        self._reload_pipeline_settings()
+        self._sync_local_ollama_worker_state()
         self._sync_admin_menu_with_config()
 
     def _on_photo_delay_changed(self, value):
@@ -871,24 +928,29 @@ class ScalingAkteGUI(QGraphicsView):
 
     def _on_moondream_enabled(self, enabled):
         self._update_pipeline_value("moondream", "enabled", bool(enabled))
+        self._reload_pipeline_settings()
 
     def _on_moondream_prompt(self, text):
         self._update_pipeline_value("moondream", "prompt", text)
 
     def _on_ollama_enabled(self, enabled):
         self._update_pipeline_value("ollama", "enabled", bool(enabled))
+        self._reload_pipeline_settings()
+        self._sync_local_ollama_worker_state()
 
     def _on_ollama_prompt(self, text):
         self._update_pipeline_value("ollama", "prompt", text)
 
     def _on_deepface_enabled(self, enabled):
         self._update_pipeline_value("deepface", "enabled", bool(enabled))
+        self._reload_pipeline_settings()
 
     def _on_deepface_retinaface_changed(self, enabled):
         self._update_pipeline_value("deepface", "use_retinaface", bool(enabled))
 
     def _on_fer_enabled(self, enabled):
         self._update_pipeline_value("fer", "enabled", bool(enabled))
+        self._reload_pipeline_settings()
 
     def _on_llm_model_changed(self, value):
         self._update_config_value("llm_model", value)

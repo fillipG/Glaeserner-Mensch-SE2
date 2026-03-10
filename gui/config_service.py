@@ -27,13 +27,13 @@ class ConfigService:
 
     def get_default_config(self):
         ollama_prompt = (
-            "Schreibe einen Kriminalbericht ueber eine fiktive Person.\n"
-            "Die Personenbeschreibung ist bereits erfolgt. Schreibe nur,\n"
-            "was die Person verbrochen haben koennte in einem Fliesstext.\n"
-            "Beachte dabei, dass es sich um ein Verbrechen in der Stasi handelt.\n"
-            "Die Ausgabe soll nicht mehr als 50 Woerter haben.\n"
-            "Antworte moeglichst kurz und versuche etwas Lustiges einzubauen.\n"
-            "Die Story muss nicht erklaert sein. Es reicht ein Verbrechen darzustellen."
+            "Write a criminal report about a fictional person.\n"
+            "The person has already been described. Write only what crime\n"
+            "the person might have committed in a short flowing paragraph.\n"
+            "Make sure it is a crime within the Stasi context.\n"
+            "The output must be between 30 and 50 words long.\n"
+            "Stay within this range and try to make it a little funny.\n"
+            "The story does not need to be explained. It is enough to show one crime."
         )
         return {
             "language": "de",
@@ -186,6 +186,7 @@ class ConfigService:
                 entry[key] = copy.deepcopy(pipeline_defaults[model_id][key])
 
         return config
+
 
     def get_pipeline_entry(self, config, model_id):
         pipeline = config.get("pipeline", [])

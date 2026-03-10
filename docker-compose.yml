@@ -29,6 +29,7 @@ services:
     volumes:
       - "./General ordner/moondream_ai/moondream_inbox:/app/moondream_inbox"
       - "./General ordner/ollama_ai/ollama_inbox:/app/ollama_inbox"
+      - "./General ordner/final:/app/final"
       - "./config.yaml:/app/config.yaml"
     restart: unless-stopped
 

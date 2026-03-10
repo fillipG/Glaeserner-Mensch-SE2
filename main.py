@@ -130,9 +130,13 @@ class YOLOWorker(QThread):
 class PipelineWorker(QThread):
     result_ready = pyqtSignal(str, list)
     reload_pool_requested = pyqtSignal()
+    reload_pipeline_requested = pyqtSignal()
 
     def request_pool_reload(self):
         self.reload_pool_requested.emit()
+
+    def request_pipeline_reload(self):
+        self.reload_pipeline_requested.emit()
 
     def run(self):
         from pipelinemanager import PipelineManager
@@ -147,6 +151,10 @@ class PipelineWorker(QThread):
             self.manager.data_finalized.connect(self.result_ready.emit)
             self.reload_pool_requested.connect(
                 self.manager.reload_pool_loader,
+                Qt.ConnectionType.QueuedConnection,
+            )
+            self.reload_pipeline_requested.connect(
+                self.manager.reload_config,
                 Qt.ConnectionType.QueuedConnection,
             )
 

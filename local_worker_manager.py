@@ -20,11 +20,15 @@ class LocalWorkerManager:
         self._ollama_service_process = None
 
     def start_ollama_worker(self):
+        # Der lokale Worker laeuft immer, weil er auch den Pass-Through-Fall fuer deaktiviertes
+        # Ollama uebernimmt. Der eigentliche Ollama-Preflight ist nur noetig, wenn das Modell
+        # wirklich aktiv genutzt werden soll.
         if self._is_process_running(self._ollama_worker_process):
             return
 
-        model_name = self._load_configured_model()
-        self._ensure_ollama_ready(model_name)
+        if self.is_ollama_enabled():
+            model_name = self._load_configured_model()
+            self._ensure_ollama_ready(model_name)
 
         script_path = self.repo_root / "workers" / "ollama_worker.py"
         if not script_path.exists():
@@ -51,7 +55,25 @@ class LocalWorkerManager:
         self._stop_process(self._ollama_service_process, "Ollama-Dienst")
         self._ollama_service_process = None
 
+    def sync_ollama_worker_state(self):
+        # Nach Config-Aenderungen wird der Worker einmal sauber neu gestartet, damit Toggle
+        # und Modellwechsel ohne App-Neustart uebernommen werden.
+        self.stop_ollama_worker()
+        self.start_ollama_worker()
+
+    def is_ollama_enabled(self):
+        config = self._load_config()
+        pipeline = config.get("pipeline", [])
+        if not isinstance(pipeline, list):
+            return True
+        for model_cfg in pipeline:
+            if isinstance(model_cfg, dict) and model_cfg.get("id") == "ollama":
+                return bool(model_cfg.get("enabled", True))
+        return True
+
     def _ensure_ollama_ready(self, model_name):
+        # Vor echtem Ollama-Betrieb prueft der Manager bewusst die komplette Kette:
+        # Python-Modul, lokaler API-Dienst und verfuegbares Modell.
         if importlib.util.find_spec("ollama") is None:
             raise RuntimeError(
                 "Das Python-Paket 'ollama' ist in dieser Umgebung nicht installiert. "
@@ -79,17 +101,19 @@ class LocalWorkerManager:
             )
 
     def _load_configured_model(self):
-        config_path = self.repo_root / "config.yaml"
-        try:
-            with open(config_path, "r", encoding="utf-8") as handle:
-                config = yaml.safe_load(handle) or {}
-        except Exception:
-            return self.default_model
-
+        config = self._load_config()
         model_name = config.get("llm_model")
         if isinstance(model_name, str) and model_name.strip():
             return model_name.strip()
         return self.default_model
+
+    def _load_config(self):
+        config_path = self.repo_root / "config.yaml"
+        try:
+            with open(config_path, "r", encoding="utf-8") as handle:
+                return yaml.safe_load(handle) or {}
+        except Exception:
+            return {}
 
     def _start_ollama_service(self, ollama_executable):
         if self._is_process_running(self._ollama_service_process):

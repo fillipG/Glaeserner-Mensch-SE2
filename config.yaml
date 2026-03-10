@@ -12,8 +12,8 @@ face_yolo:
 pool:
   enabled: true
   path: ./pool
-  max_extra_persons: 0
-  cooldown_batches: 10
+  max_extra_persons: 1
+  cooldown_batches: 5
 pipeline:
 - id: moondream
   name: Visual Description (VLM)
@@ -29,19 +29,19 @@ pipeline:
   final_output: true
   watch_dir: ./General ordner/final
   file_ext: .yaml
-  prompt: 'Schreibe einen Kriminalbericht ueber eine fiktive Person.
+  prompt: 'Write a criminal report about a fictional person.
 
-    Die Personenbeschreibung ist bereits erfolgt. Schreibe nur,
+    The person has already been described. Write only what crime
 
-    was die Person verbrochen haben koennte in einem Fliesstext.
+    the person might have committed in a short flowing paragraph.
 
-    Beachte dabei, dass es sich um ein Verbrechen in der Stasi handelt.
+    Make sure it is a crime within the Stasi context.
 
-    Die Ausgabe soll nicht mehr als 50 Woerter haben.
+    The output must be between 30 and 50 words long.
 
-    Antworte moeglichst kurz und versuche etwas Lustiges einzubauen.
+    Stay within this range and try to make it a little funny.
 
-    Die Story muss nicht erklaert sein. Es reicht ein Verbrechen darzustellen.'
+    The story does not need to be explained. It is enough to show one crime.'
 - id: deepface
   name: Emotionserkennung
   enabled: true

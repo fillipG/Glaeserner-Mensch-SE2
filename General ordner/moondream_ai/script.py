@@ -8,11 +8,13 @@ from PIL import Image
 from transformers import AutoModelForCausalLM
 
 INPUT_DIR = "/app/moondream_inbox"
-PROCESSED_DIR = "/app/ollama_inbox"
+OLLAMA_INBOX_DIR = "/app/ollama_inbox"
 CONFIG_PATH = "/app/config.yaml"
 
 
 def load_moondream_config():
+    # Der Worker liest die Config zyklisch neu ein, damit Prompt- und Enable-Aenderungen
+    # ohne Container-Neustart wirksam werden.
     try:
         with open(CONFIG_PATH, "r", encoding="utf-8") as f:
             config = yaml.safe_load(f) or {}
@@ -54,7 +56,7 @@ while True:
 
     try:
         os.makedirs(INPUT_DIR, exist_ok=True)
-        os.makedirs(PROCESSED_DIR, exist_ok=True)
+        os.makedirs(OLLAMA_INBOX_DIR, exist_ok=True)
         all_files = [f for f in os.listdir(INPUT_DIR) if f.lower().endswith((".jpg", ".jpeg", ".png"))]
         valid_files = [f for f in all_files if re.match(r"^face\d+", f, re.IGNORECASE)]
     except Exception as exc:
@@ -65,13 +67,18 @@ while True:
     for filename in valid_files:
         img_path = os.path.join(INPUT_DIR, filename)
         name_part = os.path.splitext(filename)[0]
+        print(f"[{name_part.upper()}] Picked up by MOONDREAM")
         yaml_filename = f"{name_part}_ollama.yaml"
-        yaml_path = os.path.join(PROCESSED_DIR, yaml_filename)
+        yaml_path = os.path.join(OLLAMA_INBOX_DIR, yaml_filename)
 
         try:
             print(f"Analysiere {filename}...")
             image = Image.open(img_path).convert("RGB")
             answer = model.query(image, current_prompt)["answer"]
+            print(f"[{name_part.upper()}] MOONDREAM finished")
+            # Moondream liefert immer nur die Zwischenbeschreibung fuer den naechsten Schritt.
+            # Die Entscheidung, ob Ollama daraus einen Endtext macht oder nur durchreicht,
+            # passiert spaeter im lokalen Ollama-Worker.
             output_data = {
                 "moondream_prompt": current_prompt,
                 "moondream_description": answer.strip(),
@@ -90,6 +97,7 @@ while True:
                 os.fsync(f.fileno())
 
             print(f"Analyse fertig: {yaml_filename}")
+            print(f"[{name_part.upper()}] Sent to OLLAMA")
             if os.path.exists(img_path):
                 os.remove(img_path)
                 print(f"Inbox geleert: {filename}")

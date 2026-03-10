@@ -18,37 +18,18 @@ class PipelineManager(QObject):
     def __init__(self, config_data, pool_loader=None):
         super().__init__()
         self.pool_loader = pool_loader
+        self.target_lang = "en"
+        self.translator = None
 
-        self.target_lang = config_data.get("language", "en")
-        if self.target_lang == "de":
-            self.translator = TranslationService(target_lang='de')
-        else:
-            self.translator = None
-
-        # Aktive finale Modelle aus Config
-        self.enabled_models = [
-            cfg for cfg in config_data["pipeline"]
-            if cfg.get("enabled", False) and cfg.get("final_output", False)
-        ]
-        self.required_ids = [m["id"] for m in self.enabled_models]
-
-        # Ordner, der auf neue YAML-Dateien überwacht wird
-        watch_dir = self.enabled_models[0]["watch_dir"] if self.enabled_models else "./General ordner/final"
-        self.watch_dir = os.path.abspath(watch_dir)
-        self.file_ext = ".yaml"
-
-        # Interner Speicher für Ergebnisse
+        # Interner Speicher f?r Ergebnisse
         self.results_cache = {}
         self.collected_faces = []
         self.expected_face_count = 0
         self.last_logged_face_count = None
         self.seen_files = set()
+        self.last_log_signature = None
 
-        os.makedirs(self.watch_dir, exist_ok=True)
-
-        print(f"PIPELINE INITIALIZED")
-        print(f"Waiting for models: {', '.join(self.required_ids).upper()}")
-        print(f"Watching folder: {self.watch_dir}\n")
+        self.reload_config(config_data)
 
     # =========================================================
     # THREAD LOOP: Prüft regelmäßig auf neue Dateien
@@ -64,11 +45,15 @@ class PipelineManager(QObject):
                     log_data = yaml.safe_load(f) or {}
 
                 new_face_count = log_data.get("face_count", 0)
-                # Reset results only if we detect a new batch
-                if new_face_count != self.expected_face_count:
+                log_signature = (os.path.getmtime(log_path), new_face_count)
+                # Ein neuer Batch kann denselben face_count wie der vorherige haben.
+                # Deshalb wird nicht nur auf die Anzahl, sondern auch auf die aktualisierte
+                # Log-Datei selbst geprueft.
+                if log_signature != self.last_log_signature:
                     self.results_cache.clear()
                     self.collected_faces.clear()
                     self.seen_files.clear()
+                    self.last_log_signature = log_signature
 
                 self.expected_face_count = new_face_count
                 if self.last_logged_face_count != self.expected_face_count:
@@ -114,7 +99,7 @@ class PipelineManager(QObject):
 
             # Prüfen, ob alle Modelle für diese ID geliefert haben
             received = list(self.results_cache[base_id].keys())
-            waiting_for = [m for m in self.required_ids if m not in received]
+            waiting_for = [m for m in self._get_effective_required_ids() if m not in received]
 
             print(f"[{base_id.upper()}] Received: {model_id.upper()}")
             if not waiting_for:
@@ -123,13 +108,23 @@ class PipelineManager(QObject):
         except Exception as e:
             print(f"Error processing {file_name}: {e}")
 
+    def _get_effective_required_ids(self):
+        required_ids = list(self.required_ids)
+        if self._is_ollama_enabled_in_config():
+            return required_ids
+
+        required_ids = [model_id for model_id in required_ids if model_id != "ollama"]
+        if "moondream" not in required_ids:
+            required_ids.append("moondream")
+        return required_ids
+
     # =========================================================
     # Gesicht fertig vorbereiten und der Sammelliste hinzufügen
     # =========================================================
     def add_to_batch(self, base_id):
         captured_data = self.results_cache.get(base_id, {})
         df_data = captured_data.get("deepface", {})
-        description_data = captured_data.get("ollama", {})
+        description_data = captured_data.get("ollama") or captured_data.get("moondream", {})
 
         person_dict = self._build_person_dict(base_id, df_data, description_data)
         self.collected_faces.append(person_dict)
@@ -196,6 +191,95 @@ class PipelineManager(QObject):
             return
         self.pool_loader.reload()
 
+    def reload_config(self, config_data=None):
+        if config_data is None:
+            try:
+                with open("config.yaml", "r", encoding="utf-8") as handle:
+                    config_data = yaml.safe_load(handle) or {}
+            except Exception as exc:
+                print(f"Pipeline-Config konnte nicht neu geladen werden: {exc}")
+                return
+
+        self.target_lang = config_data.get("language", "en")
+        if self.target_lang == "de":
+            self.translator = TranslationService(target_lang='de')
+        else:
+            self.translator = None
+
+        self.enabled_models = self._resolve_enabled_models(config_data)
+        self.required_ids = [m["id"] for m in self.enabled_models]
+
+        # Die Pipeline beobachtet immer genau den Ordner des ersten finalen Modells.
+        # Bei aktiviertem Ollama ist das der final-Ordner fuer OLLAMA/DEEPFACE,
+        # bei deaktiviertem Ollama wird auf MOONDREAM im final-Ordner zurueckgefallen.
+        watch_dir = self.enabled_models[0]["watch_dir"] if self.enabled_models else "./General ordner/final"
+        self.watch_dir = os.path.abspath(watch_dir)
+        self.file_ext = ".yaml"
+        os.makedirs(self.watch_dir, exist_ok=True)
+
+        self.results_cache.clear()
+        self.collected_faces.clear()
+        self.expected_face_count = 0
+        self.last_logged_face_count = None
+        self.seen_files.clear()
+        self.last_log_signature = None
+
+        print("PIPELINE INITIALIZED")
+        print(f"Waiting for models: {', '.join(self.required_ids).upper()}")
+        print(f"Watching folder: {self.watch_dir}\n")
+
+    def _resolve_enabled_models(self, config_data):
+        pipeline = config_data.get("pipeline", [])
+        if not isinstance(pipeline, list):
+            return []
+
+        # Nur explizit als final markierte Modelle duerfen einen Batch abschliessen.
+        final_models = [
+            cfg for cfg in pipeline
+            if isinstance(cfg, dict) and cfg.get("enabled", False) and cfg.get("final_output", False)
+        ]
+
+        ollama_entry = next(
+            (cfg for cfg in pipeline if isinstance(cfg, dict) and cfg.get("id") == "ollama"),
+            None,
+        )
+        ollama_enabled = bool(ollama_entry.get("enabled", True)) if ollama_entry else False
+
+        if ollama_enabled:
+            return final_models
+
+        moondream_entry = next(
+            (cfg for cfg in pipeline if isinstance(cfg, dict) and cfg.get("id") == "moondream"),
+            None,
+        )
+        if moondream_entry and moondream_entry.get("enabled", False):
+            # Ohne Ollama wird Moondream temporaer als finales Textmodell behandelt,
+            # damit die Pipeline weiter auf eine Textdatei im final-Ordner warten kann.
+            final_models = [cfg for cfg in final_models if cfg.get("id") != "ollama"]
+            if not any(cfg.get("id") == "moondream" for cfg in final_models):
+                fallback_entry = dict(moondream_entry)
+                fallback_entry["final_output"] = True
+                fallback_entry["watch_dir"] = "./General ordner/final"
+                final_models.insert(0, fallback_entry)
+
+        return final_models
+
+    def _is_ollama_enabled_in_config(self):
+        try:
+            with open("config.yaml", "r", encoding="utf-8") as handle:
+                config_data = yaml.safe_load(handle) or {}
+        except Exception:
+            return True
+
+        pipeline = config_data.get("pipeline", [])
+        if not isinstance(pipeline, list):
+            return True
+
+        for cfg in pipeline:
+            if isinstance(cfg, dict) and cfg.get("id") == "ollama":
+                return bool(cfg.get("enabled", True))
+        return True
+
     # =========================================================
     # Danger-Score berechnen
     # =========================================================
@@ -233,13 +317,22 @@ class PipelineManager(QObject):
     # Ordner und internen Speicher zurücksetzen
     # =========================================================
     def cleanup_folders(self):
-        final_folder = os.path.abspath(self.watch_dir)
+        cleanup_targets = [
+            os.path.abspath(self.watch_dir),
+            os.path.abspath("./General ordner/ollama_ai/ollama_inbox"),
+        ]
 
-        print(f"\n🧹 Cleaning up: {os.path.basename(final_folder)}")
+        for folder in cleanup_targets:
+            print()
+            print(f"Cleaning up: {os.path.basename(folder)}")
 
-        if os.path.exists(final_folder):
-            for filename in os.listdir(final_folder):
-                file_path = os.path.join(final_folder, filename)
+            if not os.path.exists(folder):
+                continue
+
+            # Die Ollama-Inbox wird bewusst mitgeleert, damit alte Zwischenfiles
+            # keinen neuen Batch fälschlich als bereits fertig aussehen lassen.
+            for filename in os.listdir(folder):
+                file_path = os.path.join(folder, filename)
                 try:
                     if os.path.isfile(file_path) or os.path.islink(file_path):
                         os.unlink(file_path)
@@ -254,5 +347,6 @@ class PipelineManager(QObject):
         self.collected_faces = []
         self.expected_face_count = 0
         self.last_logged_face_count = None
+        self.last_log_signature = None
 
         print("✨ System reset and ready for next person.")
