@@ -77,16 +77,7 @@ class ScalingAkteGUI(QGraphicsView):
 
         self.config_service = ConfigService(default_llm_value=LLM_OPTIONS[0]["value"])
         self.config = self._load_config()
-        self.wait_time_file_closed = int(self.config.get("wait_time_file_closed", 3))
-        self.reset_countdown_seconds = int(self.config.get("reset_countdown_seconds", 3))
-        self.close_on_no_person_enabled = bool(self.config.get("close_on_no_person_enabled", True))
-        self.close_on_no_person_seconds = int(self.config.get("close_on_no_person_seconds", 10))
-        self.no_person_check_interval_ms = int(self.config.get("no_person_check_interval_ms", 2000))
-        self.pipeline_timeout_seconds = int(self.config.get("pipeline_timeout_seconds", 30))
-        self.face_yolo_confidence = self._get_face_yolo_confidence()
-        self.animation_speed = int(self.config.get("animation_speed", 1))
-        self.is_fullscreen = bool(self.config.get("fullscreen", True))
-        self.developer_mode = bool(self.config.get("developer_mode", False))
+        self._apply_runtime_settings_from_config()
         self.active_containers = []
         self.current_language = self.config.get("language", "de")
         self.translator = TranslationService(target_lang=self.current_language)
@@ -664,73 +655,13 @@ class ScalingAkteGUI(QGraphicsView):
 
     def _load_config(self):
         """Laedt die gesamte config.yaml und setzt Defaults."""
-        config = self.config_service.load()
-        self._ensure_config_defaults(config)
-        return config
+        return self.config_service.load()
 
     def _save_config(self):
         self.config_service.save(self.config)
 
     def _ensure_config_defaults(self, config):
-        self.config_service.ensure_base_defaults(config)
-
-        pipeline = config.setdefault("pipeline", [])
-        if not isinstance(pipeline, list):
-            pipeline = []
-            config["pipeline"] = pipeline
-
-        self._ensure_pipeline_entry(
-            pipeline,
-            model_id="moondream",
-            name="Visual Description (VLM)",
-            enabled=True,
-            prompt="Name the clothing and any accessories the person is wearing",
-            show_preview=True,
-        )
-        self._ensure_pipeline_entry(
-            pipeline,
-            model_id="deepface",
-            name="Emotionserkennung",
-            enabled=False,
-            use_retinaface=True,
-        )
-        self._ensure_pipeline_entry(
-            pipeline,
-            model_id="fer",
-            name="Emotionserkennung (FER)",
-            enabled=False,
-        )
-
-    def _ensure_pipeline_entry(
-        self,
-        pipeline,
-        model_id,
-        name,
-        enabled=False,
-        prompt=None,
-        show_preview=False,
-        use_retinaface=None,
-    ):
-        entry = next((p for p in pipeline if p.get("id") == model_id), None)
-        if entry is None:
-            entry = {
-                "id": model_id,
-                "name": name,
-                "enabled": enabled,
-                "watch_dir": "./final",
-                "file_ext": ".yaml",
-            }
-            pipeline.append(entry)
-        entry.setdefault("name", name)
-        entry.setdefault("enabled", enabled)
-        entry.setdefault("watch_dir", "./final")
-        entry.setdefault("file_ext", ".yaml")
-        if show_preview:
-            entry.setdefault("show_preview", True)
-        if prompt is not None:
-            entry.setdefault("prompt", prompt)
-        if use_retinaface is not None:
-            entry.setdefault("use_retinaface", bool(use_retinaface))
+        self.config_service.ensure_defaults(config)
 
     def _get_pipeline_entry(self, model_id):
         pipeline = self.config.setdefault("pipeline", [])
@@ -755,7 +686,7 @@ class ScalingAkteGUI(QGraphicsView):
     def _update_pipeline_value(self, model_id, key, value):
         entry = self._get_pipeline_entry(model_id)
         if entry is None:
-            self._ensure_pipeline_entry(self.config.setdefault("pipeline", []), model_id, model_id, enabled=False)
+            self.config_service.ensure_defaults(self.config)
             entry = self._get_pipeline_entry(model_id)
         if entry is None:
             return
@@ -794,32 +725,81 @@ class ScalingAkteGUI(QGraphicsView):
         self.admin_menu.deepface_retinaface_changed.connect(self._on_deepface_retinaface_changed)
         self.admin_menu.fer_enabled_changed.connect(self._on_fer_enabled)
         self.admin_menu.llm_model_changed.connect(self._on_llm_model_changed)
+        self.admin_menu.reset_defaults_requested.connect(self._reset_admin_settings_to_defaults)
 
     def _sync_admin_menu_with_config(self):
+        defaults = self.config_service.get_default_admin_settings()
         moondream = self._get_pipeline_entry("moondream") or {}
         deepface = self._get_pipeline_entry("deepface") or {}
         fer = self._get_pipeline_entry("fer") or {}
         pool = self.config.get("pool", {})
         settings = {
-            "wait_time_file_closed": self.config.get("wait_time_file_closed", 3),
-            "close_on_no_person_enabled": self.config.get("close_on_no_person_enabled", True),
-            "close_on_no_person_seconds": self.config.get("close_on_no_person_seconds", 10),
-            "animation_speed": self.config.get("animation_speed", 1),
-            "pipeline_timeout_seconds": self.config.get("pipeline_timeout_seconds", 30),
+            "wait_time_file_closed": self.config.get("wait_time_file_closed", defaults["wait_time_file_closed"]),
+            "close_on_no_person_enabled": self.config.get(
+                "close_on_no_person_enabled",
+                defaults["close_on_no_person_enabled"]
+            ),
+            "close_on_no_person_seconds": self.config.get(
+                "close_on_no_person_seconds",
+                defaults["close_on_no_person_seconds"]
+            ),
+            "animation_speed": self.config.get("animation_speed", defaults["animation_speed"]),
+            "pipeline_timeout_seconds": self.config.get(
+                "pipeline_timeout_seconds",
+                defaults["pipeline_timeout_seconds"]
+            ),
             "face_yolo_confidence": self._get_face_yolo_confidence(),
-            "fullscreen": self.config.get("fullscreen", True),
-            "developer_mode": self.config.get("developer_mode", False),
-            "pool_enabled": pool.get("enabled", True),
-            "pool_max_extra_persons": pool.get("max_extra_persons", 3),
-            "pool_cooldown_batches": pool.get("cooldown_batches", 3),
-            "moondream_enabled": moondream.get("enabled", True),
-            "moondream_prompt": moondream.get("prompt", ""),
-            "deepface_enabled": deepface.get("enabled", False),
-            "deepface_use_retinaface": deepface.get("use_retinaface", True),
-            "fer_enabled": fer.get("enabled", False),
-            "llm_model": self.config.get("llm_model", LLM_OPTIONS[0]["value"]),
+            "fullscreen": self.config.get("fullscreen", defaults["fullscreen"]),
+            "developer_mode": self.config.get("developer_mode", defaults["developer_mode"]),
+            "pool_enabled": pool.get("enabled", defaults["pool_enabled"]),
+            "pool_max_extra_persons": pool.get("max_extra_persons", defaults["pool_max_extra_persons"]),
+            "pool_cooldown_batches": pool.get("cooldown_batches", defaults["pool_cooldown_batches"]),
+            "moondream_enabled": moondream.get("enabled", defaults["moondream_enabled"]),
+            "moondream_prompt": moondream.get("prompt", defaults["moondream_prompt"]),
+            "deepface_enabled": deepface.get("enabled", defaults["deepface_enabled"]),
+            "deepface_use_retinaface": deepface.get(
+                "use_retinaface",
+                defaults["deepface_use_retinaface"]
+            ),
+            "fer_enabled": fer.get("enabled", defaults["fer_enabled"]),
+            "llm_model": self.config.get("llm_model", defaults["llm_model"]),
         }
         self.admin_menu.apply_settings(settings)
+
+    def _apply_runtime_settings_from_config(self):
+        defaults = self.config_service.get_default_config()
+        self.wait_time_file_closed = int(self.config.get("wait_time_file_closed", defaults["wait_time_file_closed"]))
+        self.reset_countdown_seconds = int(
+            self.config.get("reset_countdown_seconds", defaults["reset_countdown_seconds"])
+        )
+        self.close_on_no_person_enabled = bool(
+            self.config.get("close_on_no_person_enabled", defaults["close_on_no_person_enabled"])
+        )
+        self.close_on_no_person_seconds = int(
+            self.config.get("close_on_no_person_seconds", defaults["close_on_no_person_seconds"])
+        )
+        self.no_person_check_interval_ms = int(
+            self.config.get("no_person_check_interval_ms", defaults["no_person_check_interval_ms"])
+        )
+        self.pipeline_timeout_seconds = int(
+            self.config.get("pipeline_timeout_seconds", defaults["pipeline_timeout_seconds"])
+        )
+        self.face_yolo_confidence = self._get_face_yolo_confidence()
+        self.animation_speed = int(self.config.get("animation_speed", defaults["animation_speed"]))
+        self.is_fullscreen = bool(self.config.get("fullscreen", defaults["fullscreen"]))
+        self.developer_mode = bool(self.config.get("developer_mode", defaults["developer_mode"]))
+
+    def _reset_admin_settings_to_defaults(self):
+        self.config_service.reset_admin_settings(self.config)
+        self._save_config()
+        # Laufzeitwerte und Admin-UI sofort neu synchronisieren, damit der Reset direkt sichtbar ist.
+        self._apply_runtime_settings_from_config()
+        self._set_fullscreen(self.config.get("fullscreen", True))
+        self._stop_no_person_timer()
+        if self.loading_active:
+            self._start_pipeline_timeout()
+        self._reload_pool_settings()
+        self._sync_admin_menu_with_config()
 
     def _on_wait_time_changed(self, value):
         self.wait_time_file_closed = int(value)

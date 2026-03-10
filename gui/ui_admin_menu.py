@@ -23,6 +23,7 @@ class AdminMenu(QFrame):
     deepface_retinaface_changed = pyqtSignal(bool)
     fer_enabled_changed = pyqtSignal(bool)
     llm_model_changed = pyqtSignal(str)
+    reset_defaults_requested = pyqtSignal()
 
     def __init__(self, llm_options=None, parent=None):
         super().__init__(parent)
@@ -101,7 +102,7 @@ class AdminMenu(QFrame):
         )
 
         self.anim_speed_label = QLabel("Animationsgeschwindigkeit")
-        self.anim_speed_value = QLabel("1")
+        self.anim_speed_value = QLabel("10")
         self.anim_speed_slider = self._create_slider(1, 10)
         self.anim_speed_slider.valueChanged.connect(self._on_animation_speed_changed)
         general_layout.addLayout(self._slider_row(self.anim_speed_label, self.anim_speed_slider, self.anim_speed_value))
@@ -239,6 +240,16 @@ class AdminMenu(QFrame):
         llm_layout.addWidget(llm_label)
         llm_layout.addWidget(self.llm_combo)
         layout.addWidget(llm_box)
+
+        self.reset_defaults_button = QPushButton("AUF STANDARDEINSTELLUNGEN ZURUECKSETZEN")
+        self.reset_defaults_button.setStyleSheet(
+            "QPushButton { background-color: #6b2e1f; color: #f4e4bc; border: 2px solid #f4e4bc; "
+            "border-radius: 10px; padding: 10px 14px; font-size: 15px; font-weight: bold; }"
+            "QPushButton:hover { background-color: #83402f; }"
+            "QPushButton:pressed { background-color: #4a1f14; }"
+        )
+        self.reset_defaults_button.clicked.connect(self.reset_defaults_requested.emit)
+        layout.addWidget(self.reset_defaults_button)
 
         layout.addStretch()
         layout.addWidget(QLabel("DRUECKE 'E' ZUM VERLASSEN", alignment=Qt.AlignmentFlag.AlignCenter))
@@ -391,9 +402,9 @@ class AdminMenu(QFrame):
         self.close_on_no_person_label.setEnabled(self.close_on_no_person_button.isChecked())
         self.close_on_no_person_slider.setEnabled(self.close_on_no_person_button.isChecked())
         self.close_on_no_person_value.setEnabled(self.close_on_no_person_button.isChecked())
-        self._set_slider_value(self.anim_speed_slider, settings.get("animation_speed", 1))
+        self._set_slider_value(self.anim_speed_slider, settings.get("animation_speed", 10))
         self.anim_speed_value.setText(str(self.anim_speed_slider.value()))
-        self._set_lineedit_value(self.pipeline_timeout_edit, str(settings.get("pipeline_timeout_seconds", 30)))
+        self._set_lineedit_value(self.pipeline_timeout_edit, str(settings.get("pipeline_timeout_seconds", 120)))
         self._set_slider_value(
             self.face_yolo_confidence_slider,
             self._face_yolo_to_slider_value(float(settings.get("face_yolo_confidence", 0.5)))

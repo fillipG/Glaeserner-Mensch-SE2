@@ -3,9 +3,9 @@ developer_mode: false
 wait_time_file_closed: 3
 reset_countdown_seconds: 3
 close_on_no_person_enabled: true
-close_on_no_person_seconds: 15
+close_on_no_person_seconds: 10
 no_person_check_interval_ms: 2000
-animation_speed: 10
+animation_speed: 15
 fullscreen: true
 photo_delay: 3
 face_yolo:
@@ -14,7 +14,7 @@ pool:
   enabled: true
   path: ./pool
   max_extra_persons: 3
-  cooldown_batches: 2
+  cooldown_batches: 3
 pipeline:
 - id: moondream
   name: Visual Description (VLM)
@@ -22,8 +22,7 @@ pipeline:
   watch_dir: ./General ordner/final
   file_ext: .yaml
   show_preview: true
-  prompt: Name the clothing and any accessories the person is wearing and tell a imagined
-    crime story to the person
+  prompt: Name the clothing and any accessories the person is wearing. Put in 4 Sentences
 - id: deepface
   name: Emotionserkennung
   enabled: true
@@ -35,5 +34,5 @@ pipeline:
   enabled: false
   watch_dir: ./General ordner/final
   file_ext: .yaml
-llm_model: phi3:3.8b
-pipeline_timeout_seconds: 600
+llm_model: llama3.2:1b
+pipeline_timeout_seconds: 120

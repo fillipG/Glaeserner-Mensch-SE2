@@ -1,3 +1,4 @@
+import copy
 import os
 import yaml
 
@@ -17,39 +18,179 @@ class ConfigService:
                 config = {}
         if not isinstance(config, dict):
             config = {}
-        self.ensure_base_defaults(config)
+        self.ensure_defaults(config)
         return config
 
     def save(self, config):
         with open(self.path, "w", encoding="utf-8") as f:
             yaml.safe_dump(config, f, sort_keys=False, allow_unicode=False)
 
-    def ensure_base_defaults(self, config):
-        config.setdefault("language", "de")
-        config.setdefault("wait_time_file_closed", 3)
-        config.setdefault("reset_countdown_seconds", 3)
-        config.setdefault("close_on_no_person_enabled", True)
-        config.setdefault("close_on_no_person_seconds", 10)
-        config.setdefault("no_person_check_interval_ms", 2000)
-        config.setdefault("pipeline_timeout_seconds", 30)
-        config.setdefault("fullscreen", True)
-        config.setdefault("developer_mode", False)
-        config.setdefault("llm_model", self.default_llm_value)
+    def get_default_config(self):
+        return {
+            "language": "de",
+            "wait_time_file_closed": 3,
+            "reset_countdown_seconds": 3,
+            "close_on_no_person_enabled": True,
+            "close_on_no_person_seconds": 10,
+            "no_person_check_interval_ms": 2000,
+            "pipeline_timeout_seconds": 120,
+            "fullscreen": True,
+            "developer_mode": False,
+            "animation_speed": 15,
+            "llm_model": self.default_llm_value,
+            "face_yolo": {
+                "confidence": 0.5,
+            },
+            "pool": {
+                "enabled": True,
+                "path": "./pool",
+                "max_extra_persons": 3,
+                "cooldown_batches": 3,
+            },
+            "pipeline": [
+                {
+                    "id": "moondream",
+                    "name": "Visual Description (VLM)",
+                    "enabled": True,
+                    "watch_dir": "./final",
+                    "file_ext": ".yaml",
+                    "show_preview": True,
+                    "prompt": "Name the clothing and any accessories the person is wearing. Put in 4 Sentences",
+                },
+                {
+                    "id": "deepface",
+                    "name": "Emotionserkennung",
+                    "enabled": True,
+                    "watch_dir": "./final",
+                    "file_ext": ".yaml",
+                    "use_retinaface": True,
+                },
+                {
+                    "id": "fer",
+                    "name": "Emotionserkennung (FER)",
+                    "enabled": False,
+                    "watch_dir": "./final",
+                    "file_ext": ".yaml",
+                },
+            ],
+        }
+
+    def get_default_admin_settings(self):
+        defaults = self.get_default_config()
+        pipeline_defaults = {entry["id"]: entry for entry in defaults["pipeline"]}
+        pool_defaults = defaults["pool"]
+        return {
+            "wait_time_file_closed": defaults["wait_time_file_closed"],
+            "close_on_no_person_enabled": defaults["close_on_no_person_enabled"],
+            "close_on_no_person_seconds": defaults["close_on_no_person_seconds"],
+            "animation_speed": defaults["animation_speed"],
+            "pipeline_timeout_seconds": defaults["pipeline_timeout_seconds"],
+            "face_yolo_confidence": defaults["face_yolo"]["confidence"],
+            "fullscreen": defaults["fullscreen"],
+            "developer_mode": defaults["developer_mode"],
+            "pool_enabled": pool_defaults["enabled"],
+            "pool_max_extra_persons": pool_defaults["max_extra_persons"],
+            "pool_cooldown_batches": pool_defaults["cooldown_batches"],
+            "moondream_enabled": pipeline_defaults["moondream"]["enabled"],
+            "moondream_prompt": pipeline_defaults["moondream"]["prompt"],
+            "deepface_enabled": pipeline_defaults["deepface"]["enabled"],
+            "deepface_use_retinaface": pipeline_defaults["deepface"]["use_retinaface"],
+            "fer_enabled": pipeline_defaults["fer"]["enabled"],
+            "llm_model": defaults["llm_model"],
+        }
+
+    def ensure_defaults(self, config):
+        # Fehlende Standardwerte ergaenzen, ohne bestehende Laufzeitwerte zu ueberschreiben.
         legacy_face_yolo_confidence = config.pop("face_yolo_confidence", None)
-        face_yolo = config.setdefault("face_yolo", {})
+        if legacy_face_yolo_confidence is not None:
+            face_yolo = config.get("face_yolo")
+            if not isinstance(face_yolo, dict):
+                face_yolo = {}
+                config["face_yolo"] = face_yolo
+            face_yolo.setdefault("confidence", legacy_face_yolo_confidence)
+
+        defaults = self.get_default_config()
+        self._merge_dict_defaults(config, defaults, skip_keys={"pipeline"})
+        self._merge_pipeline_defaults(config, defaults["pipeline"])
+
+    def ensure_base_defaults(self, config):
+        self.ensure_defaults(config)
+
+    def reset_admin_settings(self, config):
+        # Nur Admin-Einstellungen gezielt auf die zentral definierten Code-Defaults zuruecksetzen.
+        defaults = self.get_default_config()
+        pipeline_defaults = {entry["id"]: entry for entry in defaults["pipeline"]}
+
+        config["wait_time_file_closed"] = defaults["wait_time_file_closed"]
+        config["close_on_no_person_enabled"] = defaults["close_on_no_person_enabled"]
+        config["close_on_no_person_seconds"] = defaults["close_on_no_person_seconds"]
+        config["animation_speed"] = defaults["animation_speed"]
+        config["pipeline_timeout_seconds"] = defaults["pipeline_timeout_seconds"]
+        config["fullscreen"] = defaults["fullscreen"]
+        config["developer_mode"] = defaults["developer_mode"]
+        config["llm_model"] = defaults["llm_model"]
+
+        face_yolo = config.get("face_yolo")
         if not isinstance(face_yolo, dict):
             face_yolo = {}
             config["face_yolo"] = face_yolo
-        if legacy_face_yolo_confidence is not None:
-            face_yolo.setdefault("confidence", legacy_face_yolo_confidence)
-        face_yolo.setdefault("confidence", 0.5)
+        face_yolo["confidence"] = defaults["face_yolo"]["confidence"]
+        config.pop("face_yolo_confidence", None)
 
-        pool = config.setdefault("pool", {})
+        pool = config.get("pool")
         if not isinstance(pool, dict):
             pool = {}
             config["pool"] = pool
-        pool.setdefault("enabled", True)
-        pool.setdefault("path", "./pool")
-        pool.setdefault("max_extra_persons", 3)
-        pool.setdefault("cooldown_batches", 3)
+        pool["enabled"] = defaults["pool"]["enabled"]
+        pool["max_extra_persons"] = defaults["pool"]["max_extra_persons"]
+        pool["cooldown_batches"] = defaults["pool"]["cooldown_batches"]
 
+        self._merge_pipeline_defaults(config, defaults["pipeline"])
+        for model_id, keys in {
+            "moondream": ("enabled", "prompt"),
+            "deepface": ("enabled", "use_retinaface"),
+            "fer": ("enabled",),
+        }.items():
+            entry = self.get_pipeline_entry(config, model_id)
+            if entry is None:
+                continue
+            for key in keys:
+                entry[key] = copy.deepcopy(pipeline_defaults[model_id][key])
+
+        return config
+
+    def get_pipeline_entry(self, config, model_id):
+        pipeline = config.get("pipeline", [])
+        if not isinstance(pipeline, list):
+            return None
+        return next((entry for entry in pipeline if isinstance(entry, dict) and entry.get("id") == model_id), None)
+
+    def _merge_dict_defaults(self, target, defaults, skip_keys=None):
+        skip_keys = set(skip_keys or ())
+        for key, default_value in defaults.items():
+            if key in skip_keys:
+                continue
+            current_value = target.get(key)
+            if isinstance(default_value, dict):
+                if not isinstance(current_value, dict):
+                    target[key] = copy.deepcopy(default_value)
+                else:
+                    self._merge_dict_defaults(current_value, default_value)
+            elif isinstance(default_value, list):
+                if not isinstance(current_value, list):
+                    target[key] = copy.deepcopy(default_value)
+            else:
+                target.setdefault(key, default_value)
+
+    def _merge_pipeline_defaults(self, config, pipeline_defaults):
+        pipeline = config.get("pipeline")
+        if not isinstance(pipeline, list):
+            pipeline = []
+            config["pipeline"] = pipeline
+
+        for default_entry in pipeline_defaults:
+            entry = self.get_pipeline_entry(config, default_entry["id"])
+            if entry is None:
+                pipeline.append(copy.deepcopy(default_entry))
+                continue
+            self._merge_dict_defaults(entry, default_entry)
