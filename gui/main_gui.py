@@ -49,6 +49,7 @@ def create_dummy_pixmap(color, text, size=(200, 200)):
 class ScalingAkteGUI(QGraphicsView):
     """Haupt-GUI inklusive Spracheinstellung per config.yaml."""
     folder_closed = pyqtSignal()  # Wird emittiert wenn closed_folder angezeigt wird -> YOLOWorker fortsetzen
+    presence_monitoring_requested = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -63,6 +64,12 @@ class ScalingAkteGUI(QGraphicsView):
         self.person_data = list(PERSONEN_DATEN)
         self.loading_item = None
         self.loading_active = False
+        self._last_person_present = True
+        self._missed_presence_checks = 0
+        self._auto_close_monitoring_enabled = False
+        self._auto_close_monitoring_pending = False
+        self._pending_close = None
+        self._reset_button_warning_active = False
         self._reset_button_pixmap_path = PATHS["reset_button"]
         self._reset_button_empty_path = PATHS["reset_button_empty"]
         self._reset_button_original_pixmap = None
@@ -72,6 +79,9 @@ class ScalingAkteGUI(QGraphicsView):
         self.config = self._load_config()
         self.wait_time_file_closed = int(self.config.get("wait_time_file_closed", 3))
         self.reset_countdown_seconds = int(self.config.get("reset_countdown_seconds", 3))
+        self.close_on_no_person_enabled = bool(self.config.get("close_on_no_person_enabled", True))
+        self.close_on_no_person_seconds = int(self.config.get("close_on_no_person_seconds", 10))
+        self.no_person_check_interval_ms = int(self.config.get("no_person_check_interval_ms", 2000))
         self.pipeline_timeout_seconds = int(self.config.get("pipeline_timeout_seconds", 30))
         self.face_yolo_confidence = self._get_face_yolo_confidence()
         self.animation_speed = int(self.config.get("animation_speed", 1))
@@ -91,7 +101,10 @@ class ScalingAkteGUI(QGraphicsView):
         self._reset_countdown_timer = QTimer(self)
         self._reset_countdown_timer.timeout.connect(self._update_reset_countdown)
         self._reset_countdown_remaining = 0
+        self._no_person_warning_timer = QTimer(self)
+        self._no_person_warning_timer.timeout.connect(self._blink_no_person_warning)
         self.camera_pixmap_item = None
+        self._last_camera_preview_pixmap = None
         self._pipeline_timeout_timer = QTimer(self)
         self._pipeline_timeout_timer.setSingleShot(True)
         self._pipeline_timeout_timer.timeout.connect(self._on_pipeline_timeout)
@@ -127,10 +140,27 @@ class ScalingAkteGUI(QGraphicsView):
     def _set_state(self, state):
         self.state = state
 
+    def _freeze_camera_preview(self):
+        if self.camera_pixmap_item is None:
+            return
+        if self._last_camera_preview_pixmap is not None:
+            self.camera_pixmap_item.setPixmap(self._last_camera_preview_pixmap)
+            return
+        placeholder = QPixmap(self._cam_display_w, self._cam_display_h)
+        placeholder.fill(QColor("black"))
+        self.camera_pixmap_item.setPixmap(placeholder)
+
     def show_loading_indicator(self):
         """Zeigt ein Lade-Symbol je nach GUI-Zustand an und tauscht den Reset-Button aus."""
+        if self.state != GUIState.RESULTS_READY:
+            self._set_state(GUIState.ANALYZING)
         self.loading_active = True
+        self._auto_close_monitoring_enabled = False
+        if self.state != GUIState.RESULTS_READY:
+            self._auto_close_monitoring_pending = False
         self._start_pipeline_timeout()
+        if not self._is_open:
+            self._freeze_camera_preview()
         if self.loading_item is not None:
             if hasattr(self.loading_item, "stop"):
                 self.loading_item.stop()
@@ -182,28 +212,95 @@ class ScalingAkteGUI(QGraphicsView):
         if self.developer_mode:
             print(f"Pipeline timeout after {self.pipeline_timeout_seconds} seconds. Returning to closed folder.")
         self.hide_loading_indicator()
-        if not self.is_animating:
-            self.show_closed_folder()
+        self.close_folder(reason="pipeline_timeout")
 
     def _set_reset_button_loading(self, is_loading):
-        if not hasattr(self, "btn_reset"):
+        button = getattr(self, "btn_reset", None)
+        if button is None:
             return
-        if is_loading:
-            if self._reset_button_original_pixmap is None:
-                self._reset_button_original_pixmap = self.btn_reset.current_pixmap
-            if os.path.exists(self._reset_button_empty_path):
-                empty = QPixmap(self._reset_button_empty_path)
-                self.btn_reset.pixmap1 = empty
-                self.btn_reset.pixmap2 = empty
-                self.btn_reset.current_pixmap = empty
-                self.btn_reset.update()
-        else:
-            if self._reset_button_original_pixmap is not None:
-                self.btn_reset.pixmap1 = self._reset_button_original_pixmap
-                self.btn_reset.pixmap2 = self._reset_button_original_pixmap
-                self.btn_reset.current_pixmap = self._reset_button_original_pixmap
-                self.btn_reset.update()
+        try:
+            if is_loading:
+                if self._reset_button_original_pixmap is None:
+                    self._reset_button_original_pixmap = button.current_pixmap
+                if os.path.exists(self._reset_button_empty_path):
+                    empty = QPixmap(self._reset_button_empty_path)
+                    button.pixmap1 = empty
+                    button.pixmap2 = empty
+                    button.current_pixmap = empty
+                    button.update()
+            else:
+                if self._reset_button_original_pixmap is not None:
+                    button.pixmap1 = self._reset_button_original_pixmap
+                    button.pixmap2 = self._reset_button_original_pixmap
+                    button.current_pixmap = self._reset_button_original_pixmap
+                    button.update()
+                self._reset_button_original_pixmap = None
+        except RuntimeError:
             self._reset_button_original_pixmap = None
+
+    def _set_reset_button_warning(self, is_warning):
+        button = getattr(self, "btn_reset", None)
+        if button is None:
+            return
+        try:
+            if is_warning:
+                self._reset_button_warning_active = True
+                button.setOpacity(0.35 if button.opacity() >= 0.99 else 1.0)
+            else:
+                self._reset_button_warning_active = False
+                button.setOpacity(1.0)
+        except RuntimeError:
+            self._reset_button_warning_active = False
+
+    def _stop_no_person_timer(self):
+        if self._no_person_warning_timer.isActive():
+            self._no_person_warning_timer.stop()
+        self._missed_presence_checks = 0
+        self._set_reset_button_warning(False)
+
+    def _get_auto_close_missed_check_limit(self):
+        interval_ms = max(100, int(self.no_person_check_interval_ms))
+        timeout_ms = max(5000, int(self.close_on_no_person_seconds) * 1000)
+        return max(1, int(round(timeout_ms / float(interval_ms))))
+
+    def _get_warning_start_missed_checks(self):
+        interval_ms = max(100, int(self.no_person_check_interval_ms))
+        warning_checks = max(1, int(round(5000 / float(interval_ms))))
+        return max(0, self._get_auto_close_missed_check_limit() - warning_checks)
+
+    def _update_no_person_warning_state(self):
+        if not self._is_open or self.loading_active or self.is_animating:
+            self._stop_no_person_timer()
+            return
+
+        if self._missed_presence_checks >= self._get_warning_start_missed_checks():
+            if not self._no_person_warning_timer.isActive():
+                self._set_reset_button_warning(True)
+                self._no_person_warning_timer.start(400)
+        else:
+            if self._no_person_warning_timer.isActive():
+                self._no_person_warning_timer.stop()
+            self._set_reset_button_warning(False)
+
+    def _blink_no_person_warning(self):
+        if not self._is_open or self.loading_active or self.is_animating:
+            self._stop_no_person_timer()
+            return
+        self._set_reset_button_warning(True)
+
+    def close_folder(self, reason: str = "", animated: bool = True):
+        if self.is_animating:
+            self._pending_close = {"reason": reason, "animated": animated}
+            return
+
+        if self._is_open and animated:
+            QTimer.singleShot(0, lambda: self.start_animation(
+                PATHS["close_animation"],
+                end_callback=self.show_closed_folder
+            ))
+            return
+
+        self.show_closed_folder()
 
     @pyqtSlot(list)
     def handle_new_dataset(self, personen_daten):
@@ -226,10 +323,13 @@ class ScalingAkteGUI(QGraphicsView):
     @pyqtSlot(str, list)
     def handle_pipeline_result(self, status, personen_daten):
         if status == "EMPTY" or not personen_daten:
+            self._auto_close_monitoring_pending = False
+            self._auto_close_monitoring_enabled = False
             self.hide_loading_indicator()
-            if not self.is_animating:
-                self.show_closed_folder()
+            self.close_folder(reason="empty_result")
             return
+        self._set_state(GUIState.RESULTS_READY)
+        self._auto_close_monitoring_pending = True
         self.handle_new_dataset(personen_daten)
 
     def update_descriptions_from_files(self):
@@ -291,14 +391,46 @@ class ScalingAkteGUI(QGraphicsView):
                 Qt.AspectRatioMode.IgnoreAspectRatio,
                 Qt.TransformationMode.SmoothTransformation
             )
+            self._last_camera_preview_pixmap = pixmap
             self.camera_pixmap_item.setPixmap(pixmap)
         except Exception as e:
             print(f"on_camera_frame Fehler: {e}")
 
+    @pyqtSlot(bool)
+    def on_person_presence_changed(self, is_present):
+        self._last_person_present = bool(is_present)
+        if is_present:
+            self._stop_no_person_timer()
+            return
+
+        if (
+            not self._is_open or
+            self.is_animating or
+            self.loading_active or
+            not self._auto_close_monitoring_enabled or
+            not self.close_on_no_person_enabled
+        ):
+            return
+
+        self._missed_presence_checks += 1
+        print(
+            f"Auto-close check {self._missed_presence_checks}/"
+            f"{self._get_auto_close_missed_check_limit()} missed"
+        )
+        self._update_no_person_warning_state()
+        if self._missed_presence_checks < self._get_auto_close_missed_check_limit():
+            return
+
+        self._stop_no_person_timer()
+        self.close_folder(reason="auto_close")
+
     def show_closed_folder(self):
         self._is_open = False
-        self._set_state(GUIState.CLOSED)
+        self._set_state(GUIState.IDLE)
         self.camera_pixmap_item = None
+        self._auto_close_monitoring_enabled = False
+        self._auto_close_monitoring_pending = False
+        self._stop_no_person_timer()
 
         self.scene.clear()
         self.active_containers = []
@@ -435,11 +567,30 @@ class ScalingAkteGUI(QGraphicsView):
             self.video_cap.release()
             self.video_cap = None
             self.video_item = None
-            QTimer.singleShot(100, self._animation_end_callback)
+            end_callback = self._animation_end_callback
+            QTimer.singleShot(100, end_callback)
+
+            if self._pending_close:
+                pending = self._pending_close
+                self._pending_close = None
+                QTimer.singleShot(
+                    120,
+                    lambda: self.close_folder(
+                        reason=pending["reason"],
+                        animated=pending["animated"],
+                    ),
+                )
 
     def show_open_folder(self):
         self._is_open = True
-        self._set_state(GUIState.OPEN)
+        self._set_state(GUIState.RESULTS_READY)
+        self._stop_no_person_timer()
+        self._auto_close_monitoring_enabled = bool(self._auto_close_monitoring_pending)
+        self._auto_close_monitoring_pending = False
+        if self._auto_close_monitoring_enabled and self.close_on_no_person_enabled:
+            print("Auto-close monitoring active")
+            self._set_state(GUIState.PRESENCE_MONITORING)
+            self.presence_monitoring_requested.emit()
         self.scene.clear()
         bg = PATHS["open_folder"]
         if os.path.exists(bg):
@@ -453,6 +604,10 @@ class ScalingAkteGUI(QGraphicsView):
 
         for container in self.active_containers:
             container.trigger_typing()
+
+        if self._auto_close_monitoring_enabled and self.close_on_no_person_enabled and not self._last_person_present:
+            self._missed_presence_checks = 0
+            self._update_no_person_warning_state()
 
     def show_flip_video(self):
         """Spielt das Umblättern-Video ab und kehrt danach zur offenen Mappe zurück."""
@@ -623,6 +778,8 @@ class ScalingAkteGUI(QGraphicsView):
 
     def _connect_admin_menu(self):
         self.admin_menu.wait_time_changed.connect(self._on_wait_time_changed)
+        self.admin_menu.close_on_no_person_enabled_changed.connect(self._on_close_on_no_person_enabled_changed)
+        self.admin_menu.close_on_no_person_changed.connect(self._on_close_on_no_person_changed)
         self.admin_menu.animation_speed_changed.connect(self._on_animation_speed_changed)
         self.admin_menu.pipeline_timeout_changed.connect(self._on_pipeline_timeout_changed)
         self.admin_menu.face_yolo_confidence_changed.connect(self._on_face_yolo_confidence_changed)
@@ -645,6 +802,8 @@ class ScalingAkteGUI(QGraphicsView):
         pool = self.config.get("pool", {})
         settings = {
             "wait_time_file_closed": self.config.get("wait_time_file_closed", 3),
+            "close_on_no_person_enabled": self.config.get("close_on_no_person_enabled", True),
+            "close_on_no_person_seconds": self.config.get("close_on_no_person_seconds", 10),
             "animation_speed": self.config.get("animation_speed", 1),
             "pipeline_timeout_seconds": self.config.get("pipeline_timeout_seconds", 30),
             "face_yolo_confidence": self._get_face_yolo_confidence(),
@@ -665,6 +824,19 @@ class ScalingAkteGUI(QGraphicsView):
     def _on_wait_time_changed(self, value):
         self.wait_time_file_closed = int(value)
         self._update_config_value("wait_time_file_closed", self.wait_time_file_closed)
+
+    def _on_close_on_no_person_enabled_changed(self, enabled):
+        self.close_on_no_person_enabled = bool(enabled)
+        self._update_config_value("close_on_no_person_enabled", self.close_on_no_person_enabled)
+        if not self.close_on_no_person_enabled:
+            self._stop_no_person_timer()
+
+    def _on_close_on_no_person_changed(self, value):
+        self.close_on_no_person_seconds = max(5, min(60, int(value)))
+        self._update_config_value("close_on_no_person_seconds", self.close_on_no_person_seconds)
+        if self.close_on_no_person_enabled and self._is_open and not self._last_person_present:
+            self._missed_presence_checks = 0
+            self._update_no_person_warning_state()
 
     def _on_animation_speed_changed(self, value):
         self.animation_speed = int(value)
@@ -767,10 +939,7 @@ class ScalingAkteGUI(QGraphicsView):
     def reset_logic(self):
         if self._start_reset_countdown():
             return
-        QTimer.singleShot(0, lambda: self.start_animation(
-            PATHS["close_animation"],
-            end_callback=self.show_closed_folder
-        ))
+        self.close_folder(reason="manual")
 
     def _start_reset_countdown(self):
         if not self._is_open or not hasattr(self, "btn_reset"):
@@ -805,10 +974,7 @@ class ScalingAkteGUI(QGraphicsView):
         if self._reset_countdown_remaining <= 0:
             self._reset_countdown_timer.stop()
             self._clear_reset_countdown()
-            QTimer.singleShot(0, lambda: self.start_animation(
-                PATHS["close_animation"],
-                end_callback=self.show_closed_folder
-            ))
+            self.close_folder(reason="manual_countdown")
 
     def _clear_reset_countdown(self):
         if self._reset_countdown_item is not None:
@@ -817,23 +983,27 @@ class ScalingAkteGUI(QGraphicsView):
         self._set_reset_button_empty(False)
 
     def _set_reset_button_empty(self, is_empty):
-        if not hasattr(self, "btn_reset"):
+        button = getattr(self, "btn_reset", None)
+        if button is None:
             return
-        if is_empty:
-            if self._reset_button_original_pixmap is None:
-                self._reset_button_original_pixmap = self.btn_reset.current_pixmap
-            if os.path.exists(self._reset_button_empty_path):
-                empty = QPixmap(self._reset_button_empty_path)
-                self.btn_reset.pixmap1 = empty
-                self.btn_reset.pixmap2 = empty
-                self.btn_reset.current_pixmap = empty
-                self.btn_reset.update()
-        else:
-            if self._reset_button_original_pixmap is not None:
-                self.btn_reset.pixmap1 = self._reset_button_original_pixmap
-                self.btn_reset.pixmap2 = self._reset_button_original_pixmap
-                self.btn_reset.current_pixmap = self._reset_button_original_pixmap
-                self.btn_reset.update()
+        try:
+            if is_empty:
+                if self._reset_button_original_pixmap is None:
+                    self._reset_button_original_pixmap = button.current_pixmap
+                if os.path.exists(self._reset_button_empty_path):
+                    empty = QPixmap(self._reset_button_empty_path)
+                    button.pixmap1 = empty
+                    button.pixmap2 = empty
+                    button.current_pixmap = empty
+                    button.update()
+            else:
+                if self._reset_button_original_pixmap is not None:
+                    button.pixmap1 = self._reset_button_original_pixmap
+                    button.pixmap2 = self._reset_button_original_pixmap
+                    button.current_pixmap = self._reset_button_original_pixmap
+                    button.update()
+                self._reset_button_original_pixmap = None
+        except RuntimeError:
             self._reset_button_original_pixmap = None
 
     def keyPressEvent(self, event):

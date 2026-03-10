@@ -7,6 +7,8 @@ from PyQt6.QtCore import Qt, pyqtSignal
 class AdminMenu(QFrame):
     """Admin-Menue mit Anzeige- und Slider-Elementen."""
     wait_time_changed = pyqtSignal(int)
+    close_on_no_person_enabled_changed = pyqtSignal(bool)
+    close_on_no_person_changed = pyqtSignal(int)
     animation_speed_changed = pyqtSignal(int)
     pipeline_timeout_changed = pyqtSignal(int)
     face_yolo_confidence_changed = pyqtSignal(float)
@@ -73,6 +75,30 @@ class AdminMenu(QFrame):
         self.wait_time_slider = self._create_slider(1, 60)
         self.wait_time_slider.valueChanged.connect(self._on_wait_time_changed)
         general_layout.addLayout(self._slider_row(self.wait_time_label, self.wait_time_slider, self.wait_time_value))
+
+        self.close_on_no_person_button = QPushButton("Auto-Close: AN")
+        self.close_on_no_person_button.setCheckable(True)
+        self.close_on_no_person_button.setStyleSheet(
+            "QPushButton { background-color: #3d2b1f; color: #f4e4bc; border: 2px solid #f4e4bc; "
+            "border-radius: 10px; padding: 8px 14px; font-size: 16px; font-weight: bold; }"
+            "QPushButton:checked { background-color: #5a4030; }"
+        )
+        self.close_on_no_person_button.toggled.connect(self._on_close_on_no_person_enabled_toggled)
+        general_layout.addWidget(self.close_on_no_person_button)
+
+        self.close_on_no_person_label = QLabel("Auto-Close ohne Person")
+        self.close_on_no_person_value = QLabel("10 s")
+        self.close_on_no_person_slider = self._create_slider(5, 60)
+        self.close_on_no_person_slider.setSingleStep(5)
+        self.close_on_no_person_slider.setPageStep(5)
+        self.close_on_no_person_slider.valueChanged.connect(self._on_close_on_no_person_changed)
+        general_layout.addLayout(
+            self._slider_row(
+                self.close_on_no_person_label,
+                self.close_on_no_person_slider,
+                self.close_on_no_person_value
+            )
+        )
 
         self.anim_speed_label = QLabel("Animationsgeschwindigkeit")
         self.anim_speed_value = QLabel("1")
@@ -283,6 +309,20 @@ class AdminMenu(QFrame):
         self.wait_time_value.setText(f"{value} s")
         self.wait_time_changed.emit(value)
 
+    def _on_close_on_no_person_changed(self, value):
+        rounded_value = max(5, min(60, int(round(value / 5.0) * 5)))
+        if rounded_value != value:
+            self._set_slider_value(self.close_on_no_person_slider, rounded_value)
+        self.close_on_no_person_value.setText(f"{rounded_value} s")
+        self.close_on_no_person_changed.emit(rounded_value)
+
+    def _on_close_on_no_person_enabled_toggled(self, checked):
+        self.close_on_no_person_button.setText("Auto-Close: AN" if checked else "Auto-Close: AUS")
+        self.close_on_no_person_label.setEnabled(checked)
+        self.close_on_no_person_slider.setEnabled(checked)
+        self.close_on_no_person_value.setEnabled(checked)
+        self.close_on_no_person_enabled_changed.emit(checked)
+
     def _on_animation_speed_changed(self, value):
         self.anim_speed_value.setText(str(value))
         self.animation_speed_changed.emit(value)
@@ -336,6 +376,21 @@ class AdminMenu(QFrame):
     def apply_settings(self, settings):
         self._set_slider_value(self.wait_time_slider, settings.get("wait_time_file_closed", 3))
         self.wait_time_value.setText(f"{self.wait_time_slider.value()} s")
+        self._set_toggle_button(
+            self.close_on_no_person_button,
+            settings.get("close_on_no_person_enabled", True)
+        )
+        self.close_on_no_person_button.setText(
+            "Auto-Close: AN" if self.close_on_no_person_button.isChecked() else "Auto-Close: AUS"
+        )
+        self._set_slider_value(
+            self.close_on_no_person_slider,
+            max(5, min(60, int(settings.get("close_on_no_person_seconds", 10))))
+        )
+        self.close_on_no_person_value.setText(f"{self.close_on_no_person_slider.value()} s")
+        self.close_on_no_person_label.setEnabled(self.close_on_no_person_button.isChecked())
+        self.close_on_no_person_slider.setEnabled(self.close_on_no_person_button.isChecked())
+        self.close_on_no_person_value.setEnabled(self.close_on_no_person_button.isChecked())
         self._set_slider_value(self.anim_speed_slider, settings.get("animation_speed", 1))
         self.anim_speed_value.setText(str(self.anim_speed_slider.value()))
         self._set_lineedit_value(self.pipeline_timeout_edit, str(settings.get("pipeline_timeout_seconds", 30)))

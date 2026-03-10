@@ -1,315 +1,272 @@
-import os
 import time
 from datetime import datetime
+
 import cv2
 from ultralytics import YOLO
 
 
 class PersonPhotoCapture:
     """
-    Klasse zur automatischen Fotoaufnahme bei erkannter Person.
-
-    Ziel:
-    - Foto wird nur aufgenommen, wenn eine Person
-      stabil und frontal zur Kamera steht.
-    - Rücken- oder Seitenansichten werden ausgeschlossen.
-    - Kurze Tracking-Aussetzer führen NICHT sofort zum Reset.
-
-    Technische Kernpunkte:
-    - YOLOv8 Pose-Modell zur Keypoint-Erkennung
-    - Geometrische Prüfung der Pose (Augen + Schultern)
-    - Stabilitäts- und Toleranzlogik
+    Teilt Kameraarbeit in zwei Modi:
+    - capture_mode: volle Foto-Logik mit Countdown und Preview
+    - presence_mode: einzelne, leichte Praesenzpruefung ohne Preview
     """
 
-    def __init__(self, save_dir="main_image", photo_delay=3, lost_tolerance=1.5):
-        """
-        Initialisiert das Aufnahme-System.
-
-        :param save_dir: Zielverzeichnis (aktuell nicht genutzt, aber vorbereitet)
-        :param photo_delay: Sekunden bis zur Fotoaufnahme (Countdown)
-        :param lost_tolerance: Toleranzzeit bei Tracking-Verlust
-        """
-
-        self.save_dir = save_dir
+    def __init__(self, photo_delay=3, lost_tolerance=1.5):
         self.PHOTO_DELAY_SECONDS = photo_delay
         self.PERSON_LOST_TOLERANCE = lost_tolerance
+        self._cap = None
 
-        # Optionaler Callback – wird mit jedem Frame aufgerufen (für GUI-Preview)
-        self.frame_callback = None
-
-        # Laden des YOLO Pose Modells
-        # Das Modell erkennt Körper-Keypoints (Augen, Schultern, etc.)
         print("Lade YOLO Modell...")
         self.model = YOLO("yolov8n-pose.pt")
         print("YOLO Modell geladen.")
 
-    # =========================================================
-    # KAMERA INITIALISIERUNG UND DEBUGGING
-    # =========================================================
-    def open_camera(self):
-        """
-        Versucht, eine verfügbare Kamera zu öffnen.
-        Es werden mehrere Indizes getestet (0–2),
-        um unterschiedliche Geräte-Konfigurationen abzudecken.
-        """
+    # Runtime-Werte koennen vom Worker vor jedem Zyklus nachgeladen werden.
+    def update_runtime_config(self, photo_delay=None):
+        if photo_delay is not None:
+            self.PHOTO_DELAY_SECONDS = int(photo_delay)
 
-        print("Versuche Kamera zu öffnen...")
+    # Die Kamera bleibt pro Modus wiederverwendbar offen, bis sie explizit freigegeben wird.
+    def ensure_camera_open(self):
+        if self._cap is not None and self._cap.isOpened():
+            return self._cap
 
+        print("Versuche Kamera zu oeffnen...")
         for index in [0, 1, 2]:
             print(f"Teste Kamera Index {index}...")
-
-            # DirectShow Backend für Windows
             cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
-            time.sleep(0.5)
+            time.sleep(0.3)
 
             print(f"isOpened (Index {index}):", cap.isOpened())
-
             if cap.isOpened():
-                print(f"[{datetime.now()}] ✅ Kamera erfolgreich geöffnet! (Index {index})")
-
-                # Debug-Informationen zur Auflösung
+                print(f"[{datetime.now()}] Kamera erfolgreich geoeffnet! (Index {index})")
                 print("Frame Width:", cap.get(cv2.CAP_PROP_FRAME_WIDTH))
                 print("Frame Height:", cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                return cap
-            else:
-                print(f"[{datetime.now()}] ❌ Kamera Index {index} nicht verfügbar.")
-                cap.release()
+                self._cap = cap
+                return self._cap
 
-        print("❌ Keine Kamera gefunden!")
+            print(f"[{datetime.now()}] Kamera Index {index} nicht verfuegbar.")
+            cap.release()
+
+        print("Keine Kamera gefunden!")
         return None
 
-    # =========================================================
-    # HAUPTFUNKTION ZUR FOTOAUFNAHME
-    # =========================================================
-    def capture_photo(self):
-        """
-        Hauptlogik:
-        - Kamera öffnen
-        - Person frontal erkennen
-        - Stabilität prüfen
-        - Countdown starten
-        - Foto aufnehmen
-        """
+    def release_camera(self):
+        if self._cap is not None:
+            self._cap.release()
+            self._cap = None
 
-        cap = self.open_camera()
+    # Gemeinsamer Frame-Leser fuer Capture- und Presence-Modus.
+    def _read_frame(self):
+        cap = self.ensure_camera_open()
         if cap is None:
             return None
 
-        # Statusvariablen
+        ret, frame = cap.read()
+        if not ret:
+            print("Fehler beim Lesen des Frames")
+            self.release_camera()
+            return None
+        return frame
+
+    # Trennt zwischen "Person ist da" und "Person ist frontal genug fuer den Countdown".
+    def _detect_person(self, frame):
+        frame_h, frame_w = frame.shape[:2]
+        person_present = False
+        person_valid = False
+
+        results = self.model(frame, conf=0.6, verbose=False)
+        result = results[0]
+        if result.keypoints is None or len(result.keypoints.xy) == 0:
+            return person_present, person_valid
+
+        person_present = True
+        person = result.keypoints.xy[0]
+        confs = result.keypoints.conf[0]
+        if len(person) <= 16:
+            return person_present, person_valid
+
+        head = person[0]
+        left_eye = person[1]
+        right_eye = person[2]
+        left_shoulder = person[5]
+        right_shoulder = person[6]
+
+        head_visible = (
+            head[0] > 20 and head[0] < frame_w - 20 and
+            head[1] > 20 and head[1] < frame_h - 20
+        )
+        eyes_confident = confs[1] > 0.5 and confs[2] > 0.5
+        shoulders_confident = confs[5] > 0.5 and confs[6] > 0.5
+        eyes_level = abs(left_eye[1] - right_eye[1]) < 20
+
+        shoulder_width = abs(left_shoulder[0] - right_shoulder[0])
+        face_ratio_valid = False
+        if shoulder_width > 0:
+            eye_distance = abs(left_eye[0] - right_eye[0])
+            ratio = eye_distance / shoulder_width
+            face_ratio_valid = 0.2 < ratio < 0.6
+
+        if head_visible and eyes_confident and shoulders_confident and eyes_level and face_ratio_valid:
+            person_valid = True
+
+        return person_present, person_valid
+
+    # Preview-Overlays werden nur im Capture-Modus gezeichnet.
+    def _emit_capture_preview(self, frame, remaining, person_valid):
+        display = frame.copy()
+        height, width = display.shape[:2]
+
+        if remaining is not None and remaining > 0:
+            sec_remaining = int(remaining) + 1
+            text = str(sec_remaining)
+            font_scale, thickness = 6.0, 10
+            (text_w, text_h), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)
+            center_x = (width - text_w) // 2
+            center_y = (height + text_h) // 2
+            cv2.putText(
+                display,
+                text,
+                (center_x + 4, center_y + 4),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                font_scale,
+                (0, 0, 0),
+                thickness + 4,
+                cv2.LINE_AA,
+            )
+            cv2.putText(
+                display,
+                text,
+                (center_x, center_y),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                font_scale,
+                (30, 200, 255),
+                thickness,
+                cv2.LINE_AA,
+            )
+        elif not person_valid:
+            hint = "Bitte in die Kamera schauen"
+            font_scale, thickness = 1.0, 2
+            (text_w, text_h), _ = cv2.getTextSize(hint, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)
+            text_x = (width - text_w) // 2
+            text_y = height - 30
+            cv2.rectangle(
+                display,
+                (text_x - 10, text_y - text_h - 8),
+                (text_x + text_w + 10, text_y + 8),
+                (20, 20, 20),
+                -1,
+            )
+            cv2.putText(
+                display,
+                hint,
+                (text_x, text_y),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                font_scale,
+                (80, 220, 255),
+                thickness,
+                cv2.LINE_AA,
+            )
+
+        return display
+
+    def capture_mode(self, frame_callback=None, stop_requested_getter=None, mode_active_getter=None):
+        """
+        Voller Aufnahme-Modus mit Live-Preview, Stabilitaetspruefung und Foto-Countdown.
+        """
         photo_taken = False
         start_time = None
         person_stable_since = None
         last_person_seen = None
         last_reported = None
-
-        # Stabilitäts- und Toleranzparameter
-        STABLE_TIME_REQUIRED = 0.7
-        MAX_LOST_TIME = self.PERSON_LOST_TOLERANCE
+        absence_logged = False
+        stable_time_required = 0.7
 
         print("Starte Personenerkennung...")
 
         while True:
-            ret, frame = cap.read()
-
-            # Fehlerbehandlung bei Kameraproblem
-            if not ret:
-                print("Fehler beim Lesen des Frames")
+            if stop_requested_getter is not None and stop_requested_getter():
+                break
+            if mode_active_getter is not None and not mode_active_getter():
                 break
 
-            # YOLO-Inferenz (Pose-Erkennung)
-            results = self.model(frame, conf=0.6, verbose=False)
-            r = results[0]
+            frame = self._read_frame()
+            if frame is None:
+                break
 
             current_time = time.time()
-            frame_h, frame_w = frame.shape[:2]
+            person_present, person_valid = self._detect_person(frame)
 
-            person_valid = False
+            if person_present:
+                last_person_seen = current_time
+                absence_logged = False
 
-            # =========================================================
-            # FRONTAL-ERKENNUNG
-            # =========================================================
-            # Ziel: Rücken- oder Seitenansichten ausschließen
-            # Methode: Geometrische Prüfung von Augen + Schultern
-            # =========================================================
-            if r.keypoints is not None and len(r.keypoints.xy) > 0:
-
-                person = r.keypoints.xy[0]
-                confs = r.keypoints.conf[0]
-
-                if len(person) > 16:
-
-                    # Relevante Keypoints
-                    head = person[0]
-                    left_eye = person[1]
-                    right_eye = person[2]
-                    left_shoulder = person[5]
-                    right_shoulder = person[6]
-
-                    # Confidence-Werte der Keypoints
-                    head_conf = confs[0]
-                    left_eye_conf = confs[1]
-                    right_eye_conf = confs[2]
-                    left_shoulder_conf = confs[5]
-                    right_shoulder_conf = confs[6]
-
-                    margin = 20
-
-                    # 1. Kopf muss vollständig im Bild sein
-                    head_visible = (
-                        head[0] > margin and head[0] < frame_w - margin and
-                        head[1] > margin and head[1] < frame_h - margin
-                    )
-
-                    # 2. Augen müssen zuverlässig erkannt sein
-                    eyes_confident = (
-                        left_eye_conf > 0.5 and
-                        right_eye_conf > 0.5
-                    )
-
-                    # 3. Schultern müssen zuverlässig erkannt sein
-                    shoulders_confident = (
-                        left_shoulder_conf > 0.5 and
-                        right_shoulder_conf > 0.5
-                    )
-
-                    # 4. Augenabstand berechnen
-                    eye_distance = abs(left_eye[0] - right_eye[0])
-
-                    # 5. Schulterbreite berechnen
-                    shoulder_width = abs(left_shoulder[0] - right_shoulder[0])
-
-                    face_ratio_valid = False
-                    if shoulder_width > 0:
-                        ratio = eye_distance / shoulder_width
-
-                        # Typisches Verhältnis bei Frontalansicht
-                        if 0.2 < ratio < 0.6:
-                            face_ratio_valid = True
-
-                    # 6. Augen sollten ungefähr auf gleicher Höhe sein
-                    eyes_level = abs(left_eye[1] - right_eye[1]) < 20
-
-                    # Finaler Frontal-Check
-                    if (head_visible and
-                        eyes_confident and
-                        shoulders_confident and
-                        eyes_level and
-                        face_ratio_valid):
-
-                        person_valid = True
-                        last_person_seen = current_time
-
-            # =========================================================
-            # STABILITÄTSLOGIK
-            # =========================================================
-            # Countdown startet erst,
-            # wenn die Person über eine gewisse Zeit stabil erkannt wird.
-            # =========================================================
+            # Erst stabile Frontalerkennung startet den eigentlichen Foto-Countdown.
             if person_valid:
-
                 if person_stable_since is None:
                     person_stable_since = current_time
-
-                # Stabilitätsprüfung
-                if (current_time - person_stable_since) >= STABLE_TIME_REQUIRED:
-                    if start_time is None:
-                        print("Person stabil frontal erkannt → Countdown startet")
-                        start_time = current_time
+                if (current_time - person_stable_since) >= stable_time_required and start_time is None:
+                    print("Person stabil frontal erkannt -> Countdown startet")
+                    start_time = current_time
             else:
-                # Reset nur, wenn Person länger als Toleranzzeit weg ist
+                person_stable_since = None
                 if last_person_seen is not None:
-                    if current_time - last_person_seen > MAX_LOST_TIME:
-                        print("Person zu lange verloren → Reset")
-
+                    time_since_seen = current_time - last_person_seen
+                    if not person_present and not absence_logged and time_since_seen <= self.PERSON_LOST_TOLERANCE:
+                        remaining_tolerance = max(0.0, self.PERSON_LOST_TOLERANCE - time_since_seen)
+                        print(
+                            f"Person kurz verloren -> warte noch {remaining_tolerance:.1f}s "
+                            f"bis Countdown-Reset"
+                        )
+                        absence_logged = True
+                    if not person_present and time_since_seen > self.PERSON_LOST_TOLERANCE:
+                        print("Person zu lange verloren -> Countdown wird zurueckgesetzt")
                         start_time = None
-                        person_stable_since = None
-                        photo_taken = False
                         last_person_seen = None
                         last_reported = None
+                        absence_logged = False
 
-            # =========================================================
-            # COUNTDOWN-LOGIK
-            # =========================================================
-            # remaining hier berechnen damit der Callback es unten nutzen kann
-            remaining = 0.0
+            remaining = None
+            # Der Countdown laeuft erst nach stabiler Freigabe und endet direkt mit dem Foto-Frame.
             if start_time is not None:
                 elapsed = current_time - start_time
                 remaining = self.PHOTO_DELAY_SECONDS - elapsed
                 sec_remaining = int(remaining) + 1
-
-                # Countdown-Ausgabe nur bei Änderung
                 if remaining > 0 and sec_remaining != last_reported:
                     print(f"Foto in: {sec_remaining} Sekunden...")
                     last_reported = sec_remaining
-
-                # Foto aufnehmen
                 elif remaining <= 0 and not photo_taken:
                     photo_taken = True
-                    print(f"[{datetime.now()}] 📸 FOTO AUFGENOMMEN!")
-
-                    # letzten Frame noch an GUI senden
-                    if self.frame_callback is not None:
+                    if frame_callback is not None:
                         try:
-                            self.frame_callback(frame)
+                            # Das letzte Preview-Bild fuer die Analyse bleibt ohne Countdown-Overlay stehen.
+                            frame_callback(frame.copy())
                         except Exception:
                             pass
-
-                    cap.release()
+                    print(f"[{datetime.now()}] FOTO AUFGENOMMEN!")
                     return frame
 
-            # Frame mit Overlays an GUI weitergeben
-            if self.frame_callback is not None:
+            if frame_callback is not None:
                 try:
-                    display = frame.copy()
-                    h_f, w_f = display.shape[:2]
-
-                    if start_time is not None and remaining > 0:
-                        # Countdown-Zahl groß mittig
-                        sec_remaining = int(remaining) + 1
-                        text = str(sec_remaining)
-                        fs, thick = 6.0, 10
-                        (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, fs, thick)
-                        cx = (w_f - tw) // 2
-                        cy = (h_f + th) // 2
-                        cv2.putText(display, text, (cx + 4, cy + 4),
-                                    cv2.FONT_HERSHEY_SIMPLEX, fs, (0, 0, 0), thick + 4, cv2.LINE_AA)
-                        cv2.putText(display, text, (cx, cy),
-                                    cv2.FONT_HERSHEY_SIMPLEX, fs, (30, 200, 255), thick, cv2.LINE_AA)
-
-                    elif not person_valid:
-                        # Hinweistext wenn keine Person erkannt
-                        hint = "Bitte in die Kamera schauen"
-                        fs_h, thick_h = 1.0, 2
-                        (tw_h, th_h), _ = cv2.getTextSize(hint, cv2.FONT_HERSHEY_SIMPLEX, fs_h, thick_h)
-                        tx = (w_f - tw_h) // 2
-                        ty = h_f - 30
-                        # Dunkler Hintergrund für Lesbarkeit
-                        cv2.rectangle(display, (tx - 10, ty - th_h - 8),
-                                      (tx + tw_h + 10, ty + 8), (20, 20, 20), -1)
-                        cv2.putText(display, hint, (tx, ty),
-                                    cv2.FONT_HERSHEY_SIMPLEX, fs_h, (80, 220, 255), thick_h, cv2.LINE_AA)
-
-                    self.frame_callback(display)
+                    frame_callback(self._emit_capture_preview(frame, remaining, person_valid))
                 except Exception:
                     pass
 
-            # Kurze Pause zur CPU-Entlastung
             time.sleep(0.01)
 
-        cap.release()
-        print("Kamera geschlossen.")
         return None
 
+    # Presence-Modus prueft nur einmal, ob noch jemand da ist, ohne Preview oder Countdown.
+    def presence_mode(self, stop_requested_getter=None):
+        """
+        Leichte Praesenzpruefung fuer Auto-Close. Kein Countdown, kein Preview.
+        """
+        if stop_requested_getter is not None and stop_requested_getter():
+            return None
 
-# =========================================================
-# TESTBLOCK (Direkter Skriptstart)
-# =========================================================
-if __name__ == "__main__":
+        frame = self._read_frame()
+        if frame is None:
+            return False
 
-    capture = PersonPhotoCapture(photo_delay=3)
-    image = capture.capture_photo()
-
-    if image is not None:
-        print("Bild erfolgreich aufgenommen.")
-    else:
-        print("Kein Bild aufgenommen.")
+        person_present, _ = self._detect_person(frame)
+        return person_present
