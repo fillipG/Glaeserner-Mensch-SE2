@@ -6,7 +6,7 @@ from enum import Enum
 import cv2
 import yaml
 from PyQt6.QtCore import QThread, Qt, pyqtSignal
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QMessageBox
 
 
 def clear_directory(path):
@@ -160,6 +160,7 @@ class PipelineWorker(QThread):
 
 def run_app():
     from gui.main_gui import ScalingAkteGUI
+    from local_worker_manager import LocalWorkerManager
 
     app = QApplication(sys.argv)
     window = ScalingAkteGUI()
@@ -176,6 +177,19 @@ def run_app():
     ]
     for cleanup_dir in startup_cleanup_dirs:
         clear_directory(cleanup_dir)
+
+    worker_manager = LocalWorkerManager()
+    window._local_worker_manager = worker_manager
+    try:
+        worker_manager.start_ollama_worker()
+    except RuntimeError as exc:
+        error_message = (
+            "Der lokale Ollama-Worker konnte nicht gestartet werden.\n\n"
+            f"{exc}"
+        )
+        print(error_message)
+        QMessageBox.critical(window, "Ollama-Start fehlgeschlagen", error_message)
+    app.aboutToQuit.connect(worker_manager.stop_workers)
 
     pipeline_thread = PipelineWorker()
     pipeline_thread.result_ready.connect(
@@ -200,6 +214,7 @@ def run_app():
     exit_code = app.exec()
     pipeline_thread.requestInterruption()
     yolo_thread.requestInterruption()
+    worker_manager.stop_workers()
     sys.exit(exit_code)
 
 

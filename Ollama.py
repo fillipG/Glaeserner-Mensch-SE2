@@ -1,5 +1,5 @@
 # zur verwendung Ollama installieren. Entweder über die offizielle Webseite (https://ollama.com/) oder über den PS-Befehl: "irm https://ollama.com/install.ps1 | iex"
-# nach installation PyCharm neu starten und in das projekt pullen (ollama pull llama3.2:1b)
+# nach installation PyCharm neu starten und in das projekt pullen (ollama pull qwen2.5:3b)
 # ollama bibliothek installieren: pip install ollama
 
 import ollama
@@ -9,7 +9,7 @@ from google import genai
 import os
 
 
-def _load_llm_model_from_config(default_model="llama3.2:1b"):
+def _load_llm_model_from_config(default_model="qwen2.5:3b"):
     config_path = "config.yaml"
     if not os.path.exists(config_path):
         return default_model

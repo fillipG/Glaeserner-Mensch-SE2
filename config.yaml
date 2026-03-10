@@ -13,7 +13,7 @@ pool:
   enabled: true
   path: ./pool
   max_extra_persons: 0
-  cooldown_batches: 3
+  cooldown_batches: 10
 pipeline:
 - id: moondream
   name: Visual Description (VLM)
@@ -55,5 +55,5 @@ pipeline:
   final_output: true
   watch_dir: ./General ordner/final
   file_ext: .yaml
-llm_model: phi3:3.8b
+llm_model: qwen2.5:3b
 pipeline_timeout_seconds: 1000

@@ -4,7 +4,7 @@ import yaml
 
 
 class ConfigService:
-    def __init__(self, path="config.yaml", default_llm_value="llama3.2:1b"):
+    def __init__(self, path="config.yaml", default_llm_value="qwen2.5:3b"):
         self.path = path
         self.default_llm_value = default_llm_value
 

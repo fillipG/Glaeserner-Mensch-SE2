@@ -28,9 +28,11 @@ PERSONEN_DATEN = [
 ]
 
 LLM_OPTIONS = [
-    {"label": "Ollama - llama3 (schlau)", "value": "llama3.2:1b"},
-    {"label": "Ollama - gemma3 (schnell)", "value": "gemma3"},
-    {"label": "Ollama - phi3 (klein)", "value": "phi3:3.8b"},
+    {"label": "Ollama - qwen2.5 3b (empfohlen)", "value": "qwen2.5:3b"},
+    {"label": "Ollama - llama3.2 3b", "value": "llama3.2:3b"},
+    {"label": "Ollama - llama3.2 1b (schnell)", "value": "llama3.2:1b"},
+    {"label": "Ollama - gemma3", "value": "gemma3"},
+    {"label": "Ollama - phi3 3.8b", "value": "phi3:3.8b"},
 ]
 
 
