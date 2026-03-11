@@ -307,14 +307,15 @@ class PipelineManager(QObject):
             return
 
         data_to_send = self._append_pool_people(list(self.collected_faces))
-        print(f"\n🚀 ALL FACES READY! Sending batch of {len(data_to_send)} to GUI...")
+        print(f"\\nALL FACES READY! Sending batch of {len(data_to_send)} to GUI...")
         self.data_finalized.emit("BATCH", data_to_send)
 
-        time.sleep(2.0)
-        self.cleanup_folders()
+        # Nach erfolgreichem Abschluss bleiben die Dateien zunaechst liegen,
+        # damit die GUI sie waehrend des Oeffnens und Anzeigens noch lesen kann.
+        self.collected_faces = []
 
     # =========================================================
-    # Ordner und internen Speicher zurücksetzen
+    # Ordner und internen Speicher zuruecksetzen
     # =========================================================
     def cleanup_folders(self):
         cleanup_targets = [
@@ -330,7 +331,7 @@ class PipelineManager(QObject):
                 continue
 
             # Die Ollama-Inbox wird bewusst mitgeleert, damit alte Zwischenfiles
-            # keinen neuen Batch fälschlich als bereits fertig aussehen lassen.
+            # keinen neuen Batch faelschlich als bereits fertig aussehen lassen.
             for filename in os.listdir(folder):
                 file_path = os.path.join(folder, filename)
                 try:
@@ -341,12 +342,16 @@ class PipelineManager(QObject):
                 except Exception as e:
                     print(f"      [SKIP] {filename} is busy: {e}")
 
-        # Interner Speicher zurücksetzen
+        self._reset_batch_state()
+
+        print("System reset and ready for next person.")
+
+    def _reset_batch_state(self):
+        # Interner Speicher wird nach Batch-Ende getrennt vom Dateisystem geleert.
+        # So kann die GUI fertige Ergebnisse noch anzeigen, bis bewusst zurueckgesetzt wird.
         self.seen_files.clear()
         self.results_cache.clear()
         self.collected_faces = []
         self.expected_face_count = 0
         self.last_logged_face_count = None
         self.last_log_signature = None
-
-        print("✨ System reset and ready for next person.")
