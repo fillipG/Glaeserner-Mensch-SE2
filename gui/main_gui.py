@@ -475,6 +475,40 @@ class ScalingAkteGUI(QGraphicsView):
         if os.path.exists(path):
             self.scene.addPixmap(QPixmap(path).scaled(SCENE_WIDTH, SCENE_HEIGHT, Qt.AspectRatioMode.KeepAspectRatioByExpanding))
 
+        logo_configs = [
+            {
+                "path": PATHS.get("logo_bmftr"),
+                "scale": 0.4,  
+                "pos": (30, SCENE_HEIGHT - 30),
+            },
+            {
+                "path": PATHS.get("logo_ki_owl"),
+                "scale": 0.11,
+                "pos": (400, SCENE_HEIGHT - 30),
+            },
+            {
+                "path": PATHS.get("logo_th_owl"),
+                "scale": 0.5,
+                "pos": (400, 200),
+            }
+        ]
+        for cfg in logo_configs:
+            logo_path = cfg.get("path")
+            if not logo_path or not os.path.exists(logo_path):
+                continue
+            pixmap = QPixmap(logo_path)
+            if pixmap.isNull():
+                continue
+            logo_item = self.scene.addPixmap(pixmap)
+            scale = float(cfg.get("scale") or 1.0)
+            if scale <= 0:
+                scale = 1.0
+            logo_item.setScale(scale)
+            pos_x, pos_bottom_y = cfg.get("pos", (30, SCENE_HEIGHT - 30))
+            scaled_height = pixmap.height() * scale
+            logo_item.setPos(pos_x, pos_bottom_y - scaled_height)
+            logo_item.setZValue(8)
+
         self._cam_display_w = 800
         self._cam_display_h = 450
         cam_x = 20
