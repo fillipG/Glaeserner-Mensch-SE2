@@ -44,6 +44,8 @@ class YOLOWorker(QThread):
         super().__init__()
         self._state = WorkerState.IDLE
         self._presence_check_interval_ms = 2000
+        self._photo_capture = None
+        self._startup_error_message = None
 
     def _get_state(self):
         return self._state
@@ -63,23 +65,33 @@ class YOLOWorker(QThread):
         print("YOLO Worker: PRESENCE_MONITORING")
         self._set_state(WorkerState.PRESENCE_MONITORING)
 
-    def run(self):
+    def prepare(self):
+        if self._photo_capture is not None or self._startup_error_message is not None:
+            return
+
         try:
             from PersonPhotoCapture import PersonPhotoCapture
 
             os.makedirs("General ordner/main_image", exist_ok=True)
-            print("--- YOLO Worker: ACTIVE ---")
-            photo_capture = PersonPhotoCapture(photo_delay=3)
+            print("YOLO Worker: bereite Modell im Hauptthread vor...")
+            self._photo_capture = PersonPhotoCapture(photo_delay=3)
         except Exception as exc:
-            error_message = (
+            self._startup_error_message = (
                 "YOLO/Torch konnte nicht initialisiert werden.\n"
                 "Wahrscheinlich fehlt auf diesem Windows-System eine Torch-Abhaengigkeit "
                 "oder es ist eine unpassende Torch-Installation aktiv.\n"
                 f"Details: {exc}"
             )
-            print(error_message)
-            self.startup_error.emit(error_message)
+
+    def run(self):
+        self.prepare()
+        if self._startup_error_message is not None:
+            print(self._startup_error_message)
+            self.startup_error.emit(self._startup_error_message)
             return
+
+        photo_capture = self._photo_capture
+        print("--- YOLO Worker: ACTIVE ---")
 
         try:
             while not self.isInterruptionRequested():
@@ -232,6 +244,7 @@ def run_app():
     window.presence_monitoring_requested.connect(yolo_thread.start_presence_monitoring)
 
     time.sleep(0.5)
+    yolo_thread.prepare()
     yolo_thread.start()
 
     exit_code = app.exec()
