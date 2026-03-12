@@ -7,6 +7,7 @@ services:
     volumes:
       # Verknüpft das aktuelle Verzeichnis (.) mit /app im Container
       - .:/app
+      - ../../config.yaml:/app/config.yaml
       
       # Greift auf den globalen Ordner "main_image" eine Ebene höher zu
       - ../main_image:/app/main_image

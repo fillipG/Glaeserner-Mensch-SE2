@@ -2,6 +2,7 @@ import os
 import sys
 import time
 from enum import Enum
+from threading import Lock
 from ultralytics import YOLO
 
 import yaml
@@ -159,11 +160,28 @@ class PipelineWorker(QThread):
     reload_pool_requested = pyqtSignal()
     reload_pipeline_requested = pyqtSignal()
 
+    def __init__(self):
+        super().__init__()
+        self.manager = None
+        self._reload_lock = Lock()
+        self._pool_reload_pending = False
+        self._pipeline_reload_pending = False
+
     def request_pool_reload(self):
-        self.reload_pool_requested.emit()
+        with self._reload_lock:
+            self._pool_reload_pending = True
 
     def request_pipeline_reload(self):
-        self.reload_pipeline_requested.emit()
+        with self._reload_lock:
+            self._pipeline_reload_pending = True
+
+    def _consume_reload_requests(self):
+        with self._reload_lock:
+            pool_reload = self._pool_reload_pending
+            pipeline_reload = self._pipeline_reload_pending
+            self._pool_reload_pending = False
+            self._pipeline_reload_pending = False
+        return pool_reload, pipeline_reload
 
     def run(self):
         from pipelinemanager import PipelineManager
@@ -176,17 +194,15 @@ class PipelineWorker(QThread):
             pool_loader = PoolLoader("config.yaml", config_data=config_data)
             self.manager = PipelineManager(config_data, pool_loader=pool_loader)
             self.manager.data_finalized.connect(self.result_ready.emit)
-            self.reload_pool_requested.connect(
-                self.manager.reload_pool_loader,
-                Qt.ConnectionType.QueuedConnection,
-            )
-            self.reload_pipeline_requested.connect(
-                self.manager.reload_config,
-                Qt.ConnectionType.QueuedConnection,
-            )
 
             print("--- Pipeline Worker: ACTIVE ---")
             while not self.isInterruptionRequested():
+                pool_reload, pipeline_reload = self._consume_reload_requests()
+                if self.manager is not None:
+                    if pipeline_reload:
+                        self.manager.reload_config()
+                    if pool_reload:
+                        self.manager.reload_pool_loader()
                 self.manager.check_for_updates()
                 time.sleep(0.5)
         except Exception as exc:

@@ -1032,6 +1032,7 @@ class ScalingAkteGUI(QGraphicsView):
 
     def _on_llm_model_changed(self, value):
         self._update_config_value("llm_model", value)
+        self._sync_local_ollama_worker_state()
 
     def _set_fullscreen(self, enabled):
         self.is_fullscreen = bool(enabled)
