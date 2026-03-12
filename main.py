@@ -194,6 +194,9 @@ def run_app():
     from gui.main_gui import ScalingAkteGUI
     from local_worker_manager import LocalWorkerManager
 
+    yolo_thread = YOLOWorker()
+    yolo_thread.prepare()
+
     app = QApplication(sys.argv)
     window = ScalingAkteGUI()
     window.show()
@@ -232,7 +235,6 @@ def run_app():
     time.sleep(0.5)
     pipeline_thread.start()
 
-    yolo_thread = YOLOWorker()
     window._yolo = yolo_thread
     yolo_thread.frame_ready.connect(window.on_camera_frame)
     yolo_thread.person_presence_changed.connect(window.on_person_presence_changed)
@@ -244,7 +246,6 @@ def run_app():
     window.presence_monitoring_requested.connect(yolo_thread.start_presence_monitoring)
 
     time.sleep(0.5)
-    yolo_thread.prepare()
     yolo_thread.start()
 
     exit_code = app.exec()
