@@ -1,4 +1,4 @@
-import os
+﻿import os
 import sys
 import cv2
 import time
@@ -99,8 +99,19 @@ class ScalingAkteGUI(QGraphicsView):
         self._reset_countdown_timer = QTimer(self)
         self._reset_countdown_timer.timeout.connect(self._update_reset_countdown)
         self._reset_countdown_remaining = 0
+        
+        # WARNUNGEN: "Keine Person" Timer
         self._no_person_warning_timer = QTimer(self)
         self._no_person_warning_timer.timeout.connect(self._blink_no_person_warning)
+
+        # FACE-OVERLAY: Bounding-Boxes im Live-Preview
+        self._face_cascade = cv2.CascadeClassifier(
+            os.path.join(cv2.data.haarcascades, "haarcascade_frontalface_default.xml")
+        )
+        self._face_detect_interval_ms = 100 #Update der Bounding-Boxes in Live-Kamera 
+        self._last_face_detect_ms = 0
+        self._last_faces = []
+        self._face_detection_scale = 0.5
         self.camera_pixmap_item = None
         self._last_camera_preview_pixmap = None
         self._pipeline_timeout_timer = QTimer(self)
@@ -410,11 +421,42 @@ class ScalingAkteGUI(QGraphicsView):
                 container.beschreibung.start_typing()
 
     def on_camera_frame(self, frame):
-        """Slot – vom YOLOWorker via frame_ready-Signal aufgerufen."""
         if self.camera_pixmap_item is None:
             return
         try:
-            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            # KAMERA-FRAME: Face-Boxes + Rendering
+            display_frame = frame
+            if self._face_cascade is not None and not self._face_cascade.empty():
+                now_ms = int(time.perf_counter() * 1000)
+                if (now_ms - self._last_face_detect_ms) >= self._face_detect_interval_ms:
+                    self._last_face_detect_ms = now_ms
+                    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                    scale = max(0.25, min(1.0, float(self._face_detection_scale)))
+                    if scale < 1.0:
+                        small = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_LINEAR)
+                    else:
+                        small = gray
+                    faces = self._face_cascade.detectMultiScale(
+                        small,
+                        scaleFactor=1.1,
+                        minNeighbors=5,
+                        minSize=(30, 30),
+                    )
+                    if scale < 1.0 and len(faces) > 0:
+                        faces = [
+                            (int(x / scale), int(y / scale), int(w / scale), int(h / scale))
+                            for (x, y, w, h) in faces
+                        ]
+                    self._last_faces = faces
+
+                faces = self._last_faces or []
+                if len(faces) > 0:
+                    display_frame = frame.copy()
+                    box_color = (188, 228, 244)  # BGR for #f4e4bc
+                    for (x, y, w, h) in faces:
+                        cv2.rectangle(display_frame, (x, y), (x + w, y + h), box_color, 2)
+
+            rgb = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
             h, w, ch = rgb.shape
             q_img = QImage(rgb.data, w, h, ch * w, QImage.Format.Format_RGB888).copy()
             pixmap = QPixmap.fromImage(q_img).scaled(
@@ -509,6 +551,7 @@ class ScalingAkteGUI(QGraphicsView):
             logo_item.setPos(pos_x, pos_bottom_y - scaled_height)
             logo_item.setZValue(8)
 
+        # KAMERA: Vorschau in der GUI 
         self._cam_display_w = 800
         self._cam_display_h = 450
         cam_x = 20
@@ -537,6 +580,7 @@ class ScalingAkteGUI(QGraphicsView):
         self.wait_timer_item.hide()
         self.wait_timer_item.setPos(SCENE_WIDTH - self.wait_timer_item.diameter - 450,
                                     SCENE_HEIGHT - self.wait_timer_item.diameter - 120)
+        #Hier endet erstmal die Kamera- und Timer-Setup-Phase
 
         self.btn_open = QPushButton("Mappe öffnen")
         self.btn_open.setFixedSize(300, 80)
