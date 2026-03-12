@@ -14,22 +14,12 @@ class PersonPhotoCapture:
     Außerdem: take_photo() für sofortiges Einzelbild ohne Speicherung
     """
 
-    def __init__(self, photo_delay=3, lost_tolerance=1.5):
+    def __init__(self, model, photo_delay=3, lost_tolerance=1.5):
         self.PHOTO_DELAY_SECONDS = photo_delay
         self.PERSON_LOST_TOLERANCE = lost_tolerance
         self._cap = None
-
-        print("Lade YOLO Modell...")
-        try:
-            from ultralytics import YOLO
-        except OSError as exc:
-            raise RuntimeError(
-                "PyTorch/Ultralytics konnte unter Windows nicht geladen werden. "
-                "Pruefe Visual-C++-Runtime, Torch-Version und GPU/CUDA-Kompatibilitaet."
-            ) from exc
-
-        self.model = YOLO("yolov8n-pose.pt")
-        print("YOLO Modell geladen.")
+        self.model = model
+        print("YOLO Modell uebernommen.")
 
     # ----------------------------
     # Runtime-Konfiguration

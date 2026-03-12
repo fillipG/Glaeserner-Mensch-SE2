@@ -3,7 +3,6 @@ import sys
 import time
 from enum import Enum
 
-import cv2
 import yaml
 from PyQt6.QtCore import QThread, Qt, pyqtSignal
 from PyQt6.QtWidgets import QApplication, QMessageBox
@@ -70,11 +69,13 @@ class YOLOWorker(QThread):
             return
 
         try:
+            from ultralytics import YOLO
             from PersonPhotoCapture import PersonPhotoCapture
 
             os.makedirs("General ordner/main_image", exist_ok=True)
             print("YOLO Worker: bereite Modell im Hauptthread vor...")
-            self._photo_capture = PersonPhotoCapture(photo_delay=3)
+            model = YOLO("yolov8n-pose.pt")
+            self._photo_capture = PersonPhotoCapture(model=model, photo_delay=3)
         except Exception as exc:
             self._startup_error_message = (
                 "YOLO/Torch konnte nicht initialisiert werden.\n"
@@ -115,6 +116,8 @@ class YOLOWorker(QThread):
                     if captured_frame is None:
                         time.sleep(0.05)
                         continue
+
+                    import cv2
 
                     filename = "General ordner/main_image/face_trigger.jpg"
                     cv2.imwrite(filename, captured_frame)
