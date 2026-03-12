@@ -2,6 +2,7 @@ import os
 import sys
 import time
 from enum import Enum
+from ultralytics import YOLO
 
 import yaml
 from PyQt6.QtCore import QThread, Qt, pyqtSignal
@@ -69,7 +70,6 @@ class YOLOWorker(QThread):
             return
 
         try:
-            from ultralytics import YOLO
             from PersonPhotoCapture import PersonPhotoCapture
 
             os.makedirs("General ordner/main_image", exist_ok=True)
