@@ -3,7 +3,6 @@ import time
 from datetime import datetime
 
 import cv2
-from ultralytics import YOLO
 
 
 class PersonPhotoCapture:
@@ -21,6 +20,14 @@ class PersonPhotoCapture:
         self._cap = None
 
         print("Lade YOLO Modell...")
+        try:
+            from ultralytics import YOLO
+        except OSError as exc:
+            raise RuntimeError(
+                "PyTorch/Ultralytics konnte unter Windows nicht geladen werden. "
+                "Pruefe Visual-C++-Runtime, Torch-Version und GPU/CUDA-Kompatibilitaet."
+            ) from exc
+
         self.model = YOLO("yolov8n-pose.pt")
         print("YOLO Modell geladen.")
 

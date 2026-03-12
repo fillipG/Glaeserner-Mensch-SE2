@@ -3,7 +3,7 @@ import numpy as np
 import os
 
 
-def create_advanced_sketch(image_path_or_img, output_path=None):
+def create_advanced_sketch(image_path_or_img, output_path=None, delete_input=False):
     """Erstellt eine Skizze und gibt das Bild (numpy-Array) zurueck."""
     # 1. Bild laden
     if isinstance(image_path_or_img, (str, os.PathLike)):
@@ -48,8 +48,8 @@ def create_advanced_sketch(image_path_or_img, output_path=None):
         cv2.imwrite(str(output_path), sketch)
         print(f"Optimierte Skizze gespeichert unter: {output_path}")
 
-    # 7. Originaldatei loeschen
-    if isinstance(image_path_or_img, (str, os.PathLike)) and os.path.exists(image_path_or_img):
+    # 7. Optional die Eingabedatei loeschen
+    if delete_input and isinstance(image_path_or_img, (str, os.PathLike)) and os.path.exists(image_path_or_img):
         os.remove(image_path_or_img)
         print(f"Originalbild geloescht: {image_path_or_img}")
 

@@ -12,8 +12,8 @@ face_yolo:
 pool:
   enabled: true
   path: ./pool
-  max_extra_persons: 1
-  cooldown_batches: 5
+  max_extra_persons: 3
+  cooldown_batches: 0
 pipeline:
 - id: moondream
   name: Visual Description (VLM)

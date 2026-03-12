@@ -42,7 +42,7 @@ class ConfigService:
             "close_on_no_person_enabled": True,
             "close_on_no_person_seconds": 10,
             "no_person_check_interval_ms": 2000,
-            "pipeline_timeout_seconds": 120,
+            "pipeline_timeout_seconds": 300,
             "fullscreen": True,
             "developer_mode": False,
             "animation_speed": 15,

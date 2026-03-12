@@ -38,6 +38,7 @@ class YOLOWorker(QThread):
     frame_ready = pyqtSignal(object)
     photo_done = pyqtSignal()
     person_presence_changed = pyqtSignal(bool)
+    startup_error = pyqtSignal(str)
 
     def __init__(self):
         super().__init__()
@@ -63,11 +64,22 @@ class YOLOWorker(QThread):
         self._set_state(WorkerState.PRESENCE_MONITORING)
 
     def run(self):
-        from PersonPhotoCapture import PersonPhotoCapture
+        try:
+            from PersonPhotoCapture import PersonPhotoCapture
 
-        os.makedirs("General ordner/main_image", exist_ok=True)
-        print("--- YOLO Worker: ACTIVE ---")
-        photo_capture = PersonPhotoCapture(photo_delay=3)
+            os.makedirs("General ordner/main_image", exist_ok=True)
+            print("--- YOLO Worker: ACTIVE ---")
+            photo_capture = PersonPhotoCapture(photo_delay=3)
+        except Exception as exc:
+            error_message = (
+                "YOLO/Torch konnte nicht initialisiert werden.\n"
+                "Wahrscheinlich fehlt auf diesem Windows-System eine Torch-Abhaengigkeit "
+                "oder es ist eine unpassende Torch-Installation aktiv.\n"
+                f"Details: {exc}"
+            )
+            print(error_message)
+            self.startup_error.emit(error_message)
+            return
 
         try:
             while not self.isInterruptionRequested():
@@ -213,6 +225,9 @@ def run_app():
     yolo_thread.frame_ready.connect(window.on_camera_frame)
     yolo_thread.person_presence_changed.connect(window.on_person_presence_changed)
     yolo_thread.photo_done.connect(window.show_loading_indicator)
+    yolo_thread.startup_error.connect(
+        lambda message: QMessageBox.critical(window, "YOLO-Start fehlgeschlagen", message)
+    )
     window.folder_closed.connect(yolo_thread.start_capture_mode)
     window.presence_monitoring_requested.connect(yolo_thread.start_presence_monitoring)
 
