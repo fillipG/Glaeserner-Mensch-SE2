@@ -1,0 +1,98 @@
+services:
+  body-extraction:
+    build: ./docker-compose-Body-Yolo
+    image: museum-yolo-body
+    container_name: yolo_body
+    volumes:
+      - ./docker-compose-Body-Yolo:/app
+      - ./main_image:/app/main_image
+      - ./body_yolo:/app/body_yolo
+      - ./models_cache/rembg:/root/.u2net
+      - ./models_cache/yolo:/app/models
+    environment:
+      - PYTHONUNBUFFERED=1
+
+  face-extraction:
+    build: ./docker-compose-face-Yolo
+    image: museum-yolo-face
+    container_name: face_extraction_app
+    volumes:
+      # Verknüpft das aktuelle Verzeichnis (.) mit /app im Container
+      - ./docker-compose-face-Yolo:/app
+      
+      - ../config.yaml:/app/config.yaml
+      # Greift auf den globalen Ordner "main_image" eine Ebene höher zu
+      - ./main_image:/app/main_image
+
+      - ./General_ordner/final:/app/final
+
+      - ./General_ordner/sketch:/app/sketch
+
+      - ./docker-compose-deepface/deepface_inbox:/app/deepface_inbox
+
+      - ./moondream_ai/moondream_inbox:/app/moondream_inbox
+      
+      # Falls die Ergebenisse in den globalen "faces_yolo" Ordner sollen:
+      - ./General_ordner/faces_yolo:/app/faces_yolo
+      
+      # Cache für Modelle (angepasst an deine Struktur)
+      - ./models_cache:/root/.u2net 
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [ gpu ]
+
+  deepface-app:
+    build: ./docker-compose-deepface
+    image: museum-deepface
+    container_name: deepface_project_container
+    volumes:
+      - .:/app
+      - .:/main_image:/app/main_image
+      - ./docker-compose-deepface/deepface_inbox:/app/deepface_inbox
+      - ./docker-compose-deepface:/app
+      - ./faces_yolo:/app/faces_yolo
+      - ./final:/app/final
+    environment:
+      - PYTHONUNBUFFERED=1
+
+  emotion-scanner:
+    build: ./docker-compose-fer
+    image: museum-emotion-scanner
+    container_name: fer_emotion_scanner
+    restart: unless-stopped
+    volumes:      
+      - ./docker-compose-fer:/app
+      - ./faces_yolo:/app/faces_yolo
+      - ./final:/app/final
+    environment:
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      - face-extraction
+
+  moondream:
+    build: ./moondream_ai 
+    image: museum-moondream
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    environment:
+      - ANALYSIS_PROMPT=${MOONDREAM_PROMPT:-"Describe the person's clothing and style in detail."}
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./moondream_ai/moondream_inbox:/app/moondream_inbox
+      - ./final:/app/final
+      - ./faces_yolo:/data/input
+      - ./final:/data/processed
+      - ./config.yaml:/app/config.yaml
+    restart: unless-stopped
