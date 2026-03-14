@@ -1,4 +1,17 @@
-﻿import os
+﻿"""
+DATEI: main_gui.py
+BESCHREIBUNG: Haupt-GUI der "Akte" mit Kamera-Integration, Animationen, Ladeanzeige und automatischem Schließen bei Abwesenheit.
+- Verarbeitet neue Datensätze und Pipeline-Ergebnisse.
+- Zeigt Kamera-Feed mit Gesichtserkennung und Bounding-Boxes.
+- Verwendet Timer für Fotoverzögerung, Anwesenheitsüberwachung und Pipeline-Timeouts.
+- Integriert Admin-Menü für LLM-Auswahl und andere Einstellungen.
+- Nutzt Übersetzung für mehrsprachige KI-Beschreibungen.
+- Verwaltet GUI-Zustände (geschlossen, offen, analysierend, Ergebnisse bereit).
+- Bereinigt Pipeline-Ausgabeverzeichnisse bei Bedarf.
+AUTOR: Fillip Giffhorn
+"""
+
+import os
 import sys
 import cv2
 import time
@@ -18,16 +31,7 @@ from .ui_admin_menu import AdminMenu
 from .ui_person_container import PersonContainer
 from .ui_widgets import AnimatedGraphicsButton, CircularTimerItem, LoadingSpinnerItem, ResetCountdownItem
 
-# --- DATEN-KONFIGURATION ---
-PERSONEN_DATEN = [
-    {"titel": "PERSON 1", "geschlecht": "Männlich", "augen": "Braun", "stimmung": "Neutral", "alter": "32",
-     "gefahr": "GERING"},
-    {"titel": "PERSON 2", "geschlecht": "Weiblich", "augen": "Blau", "stimmung": "Beunruhigt", "alter": "27",
-     "gefahr": "MITTEL"},
-    {"titel": "PERSON 3", "geschlecht": "Divers", "augen": "Grün", "stimmung": "Aggressiv", "alter": "41",
-     "gefahr": "EXTREM"},
-]
-
+# Definition von auswählbaren Ollama modellen
 LLM_OPTIONS = [
     {"label": "Ollama - qwen3 4b (aktuell)", "value": "qwen3:4b"},
     {"label": "Ollama - gemma3 1b (aktuell, leicht)", "value": "gemma3:1b"},
@@ -39,21 +43,11 @@ LLM_OPTIONS = [
     {"label": "Ollama - phi3 3.8b", "value": "phi3:3.8b"},
 ]
 
-
-def create_dummy_pixmap(color, text, size=(200, 200)):
-    pixmap = QPixmap(*size)
-    pixmap.fill(QColor(color))
-    painter = QPainter(pixmap)
-    painter.setPen(QColor("white"))
-    painter.setFont(QFont("Arial", 20))
-    painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter, text)
-    painter.end()
-    return pixmap
-
-
 # --- HAUPT GUI ---
 class ScalingAkteGUI(QGraphicsView):
-    """Haupt-GUI inklusive Spracheinstellung per config.yaml."""
+    """
+    Haupt-GUI der "Akte" mit Kamera-Integration, Animationen, Ladeanzeige und automatischem Schließen bei Abwesenheit.
+    """
     folder_closed = pyqtSignal()  # Wird emittiert wenn closed_folder angezeigt wird -> YOLOWorker fortsetzen
     presence_monitoring_requested = pyqtSignal()
 
@@ -67,7 +61,7 @@ class ScalingAkteGUI(QGraphicsView):
         self.is_animating = False
         self._is_open = False
         self.state = GUIState.CLOSED
-        self.person_data = list(PERSONEN_DATEN)
+        self.person_data = []
         self.loading_item = None
         self.loading_active = False
         self._last_person_present = True
@@ -125,11 +119,6 @@ class ScalingAkteGUI(QGraphicsView):
         self._pipeline_timeout_timer.setSingleShot(True)
         self._pipeline_timeout_timer.timeout.connect(self._on_pipeline_timeout)
 
-        # Timer für das Scannen des "final" Ordners
-        #self.scan_timer = QTimer(self)
-        #self.scan_timer.timeout.connect(self.update_descriptions_from_files)
-        #self.scan_timer.start(2000)  # Scan alle 2 Sekunden
-
         self.admin_menu = AdminMenu(LLM_OPTIONS, self)
         self._connect_admin_menu()
         self._sync_admin_menu_with_config()
@@ -142,6 +131,11 @@ class ScalingAkteGUI(QGraphicsView):
         self.setFrameShape(QFrame.Shape.NoFrame)
 
     def _normalize_person_data(self, personen_daten):
+        """
+        Normalisiert die Personendaten und begrenzt sie auf maximal 4 Personen
+        :param personen_daten: Die rohen Personendaten, die von der Pipeline oder dem Pool kommen können. Erlaubt sind Listen oder andere iterierbare Strukturen.
+        :return: Eine Liste von maximal 4 normalisierten Personendatensätzen.
+        """
         if personen_daten is None:
             return []
         if isinstance(personen_daten, list):
@@ -154,9 +148,17 @@ class ScalingAkteGUI(QGraphicsView):
         return data[:4]
 
     def _set_state(self, state):
+        """
+        Setzt den internen GUI-Zustand.
+        :param state: Neuer GUIState.
+        :return: None
+        """
         self.state = state
 
     def _freeze_camera_preview(self):
+        """
+        Setzt die Kamera-Vorschau auf ein statisches Bild, um als Anwender zu sehen, welches Bild gerade analysiert wird
+        """
         if self.camera_pixmap_item is None:
             return
         if self._last_camera_preview_pixmap is not None:
@@ -167,7 +169,9 @@ class ScalingAkteGUI(QGraphicsView):
         self.camera_pixmap_item.setPixmap(placeholder)
 
     def show_loading_indicator(self):
-        """Zeigt ein Lade-Symbol je nach GUI-Zustand an und tauscht den Reset-Button aus."""
+        """
+        Zeigt ein Lade-Symbol je nach GUI-Zustand an.
+        """
         if self.state != GUIState.RESULTS_READY:
             self._set_state(GUIState.ANALYZING)
         self.loading_active = True
@@ -206,7 +210,9 @@ class ScalingAkteGUI(QGraphicsView):
             self.loading_item.setPos(SCENE_WIDTH - diameter - 450, SCENE_HEIGHT - diameter - 120)
 
     def hide_loading_indicator(self):
-        """Beendet das Ladesymbol und stellt den Reset-Button wieder her."""
+        """
+        Beendet das Ladesymbol.
+        """
         self.loading_active = False
         if self._pipeline_timeout_timer.isActive():
             self._pipeline_timeout_timer.stop()
@@ -219,10 +225,17 @@ class ScalingAkteGUI(QGraphicsView):
         self._set_reset_button_loading(False)
 
     def _start_pipeline_timeout(self):
+        """
+        Startet den Timer, der die Pipeline-Timeout-Überwachung aktiviert. Wenn der Timer abläuft, wird die Pipeline als "hängen geblieben" betrachtet und die Akte wird geschlossen.
+        :return:
+        """
         timeout_ms = max(1, int(self.pipeline_timeout_seconds)) * 1000
         self._pipeline_timeout_timer.start(timeout_ms)
 
     def _on_pipeline_timeout(self):
+        """
+        Callback, wenn die Pipeline-Timeout-Überwachung auslöst. Schließt die Akte mit einem entsprechenden Grund und versteckt die Ladeanzeige.
+        """
         if not self.loading_active:
             return
         if self.developer_mode:
@@ -231,6 +244,11 @@ class ScalingAkteGUI(QGraphicsView):
         self.close_folder(reason="pipeline_timeout")
 
     def _set_reset_button_loading(self, is_loading):
+        """
+        Zeigt auf dem Reset-Button ein ladesymbol an, indem das Originalbild durch ein leeres Bild ersetzt wird. Beim Beenden des Ladevorgangs wird das Originalbild wiederhergestellt.
+        :param is_loading: True, um den Ladezustand anzuzeigen, False, um zum Normalzustand zurückzukehren.
+        :return:
+        """
         button = getattr(self, "btn_reset", None)
         if button is None:
             return
@@ -255,6 +273,11 @@ class ScalingAkteGUI(QGraphicsView):
             self._reset_button_original_pixmap = None
 
     def _set_reset_button_warning(self, is_warning):
+        """
+        Lässt reset Button pulsieren, wenn keine Person erkannt wird und die Akte kurz davor ist, sich automatisch zu schließen. Beim Beenden der Warnung wird der Button-Zustand wiederhergestellt.
+        :param is_warning: True, um den Warnzustand anzuzeigen, False, um zum Normalzustand zurückzukehren.
+        :return:
+        """
         button = getattr(self, "btn_reset", None)
         if button is None:
             return
@@ -269,22 +292,38 @@ class ScalingAkteGUI(QGraphicsView):
             self._reset_button_warning_active = False
 
     def _stop_no_person_timer(self):
+        """
+        Stoppt den Timer für die "Keine Person erkannt" Warnung und setzt den Zähler der verpassten Anwesenheitsprüfungen zurück.
+        Außerdem wird die Reset-Button-Warnung deaktiviert, falls sie aktiv ist.
+        """
         if self._no_person_warning_timer.isActive():
             self._no_person_warning_timer.stop()
         self._missed_presence_checks = 0
         self._set_reset_button_warning(False)
 
     def _get_auto_close_missed_check_limit(self):
+        """
+        Berechnet die Anzahl der verpassten Anwesenheitsprüfungen, die erforderlich sind, bevor die Akte automatisch geschlossen wird. Diese Berechnung basiert auf den Einstellungen für das Intervall der Anwesenheitsprüfungen und die Zeit bis zum automatischen Schließen.
+        :return: Die Anzahl der verpassten Anwesenheitsprüfungen, die zum automatischen Schließen führen.
+        """
         interval_ms = max(100, int(self.no_person_check_interval_ms))
         timeout_ms = max(5000, int(self.close_on_no_person_seconds) * 1000)
         return max(1, int(round(timeout_ms / float(interval_ms))))
 
     def _get_warning_start_missed_checks(self):
+        """
+        Berechnet die Anzahl der verpassten Anwesenheitsprüfungen, bei der die Warnung "Keine Person erkannt" aktiviert wird. Diese Berechnung basiert auf der Anzahl der verpassten Prüfungen, die zum automatischen Schließen führen, minus einer Sicherheitsmarge von 5 Sekunden.
+        :return: Die Anzahl der verpassten Anwesenheitsprüfungen, bei der die Warnung aktiviert wird.
+        """
         interval_ms = max(100, int(self.no_person_check_interval_ms))
         warning_checks = max(1, int(round(5000 / float(interval_ms))))
         return max(0, self._get_auto_close_missed_check_limit() - warning_checks)
 
     def _update_no_person_warning_state(self):
+        """
+        Aktualisiert den Zustand der "Keine Person erkannt" Warnung basierend auf der Anzahl der verpassten Anwesenheitsprüfungen. Wenn die Anzahl der verpassten Prüfungen den Schwellenwert für die Warnung erreicht oder überschreitet, wird die Warnung aktiviert und der Reset-Button beginnt zu pulsieren. Wenn die Anzahl der verpassten Prüfungen unter den Schwellenwert fällt, wird die Warnung deaktiviert und der Reset-Button kehrt zum Normalzustand zurück.
+        :return:
+        """
         if not self._is_open or self.loading_active or self.is_animating:
             self._stop_no_person_timer()
             return
@@ -299,12 +338,22 @@ class ScalingAkteGUI(QGraphicsView):
             self._set_reset_button_warning(False)
 
     def _blink_no_person_warning(self):
+        """
+        Lässt den Reset-Button pulsieren, um anzuzeigen, dass keine Person erkannt wurde und die Akte kurz davor ist, sich automatisch zu schließen. Diese Funktion wird von einem Timer aufgerufen, der alle 400 ms ausgelöst wird, wenn die Warnung aktiv ist.
+        :return:
+        """
         if not self._is_open or self.loading_active or self.is_animating:
             self._stop_no_person_timer()
             return
         self._set_reset_button_warning(True)
 
     def close_folder(self, reason: str = "", animated: bool = True):
+        """
+        Schließt die Akte mit optionaler Animation. Je nach Grund des Schließens können zusätzliche Aktionen wie das Bereinigen von Pipeline-Ausgabeverzeichnissen ausgelöst werden.
+        :param reason: Der Grund für das Schließen der Akte. Mögliche Werte: "manual", "manual_countdown", "auto_close", "pipeline_timeout", "empty_result". Je nach Grund können bestimmte Aktionen ausgelöst werden, z.B. das Bereinigen von Pipeline-Ausgabeverzeichnissen.
+        :param animated: True, um eine Schließ-Animation abzuspielen, bevor die Akte geschlossen wird. False, um die Akte sofort zu schließen, ohne Animation.
+        :return:
+        """
         self._clear_pipeline_outputs_on_close = reason in {
             "manual",
             "manual_countdown",
@@ -326,6 +375,10 @@ class ScalingAkteGUI(QGraphicsView):
         self.show_closed_folder()
 
     def _clear_pipeline_output_dirs(self):
+        """
+        Entfernt alle Dateien und Unterordner in den Pipeline-Ausgabeverzeichnissen, um sicherzustellen, dass der nächste Durchlauf mit einem sauberen Zustand beginnt. Diese Funktion wird bewusst beim Schließen der Akte aufgerufen, um zu verhindern, dass veraltete Dateien aus vorherigen Durchläufen die aktuelle Verarbeitung stören.
+        :return:
+        """
         # Beim bewussten Ruecksprung werden alte Pipeline-Ergebnisse entfernt,
         # damit der naechste Durchlauf nicht auf Restdateien aus dem vorherigen Batch trifft.
         cleanup_dirs = [
@@ -348,7 +401,10 @@ class ScalingAkteGUI(QGraphicsView):
 
     @pyqtSlot(list)
     def handle_new_dataset(self, personen_daten):
-        """Main-Controller: verarbeitet neue Datensaetze."""
+        """
+        Verarbeitet einen neuen Satz von Personendaten, der von der Pipeline oder dem Pool bereitgestellt wird. Je nach aktuellem Zustand der GUI und ob bereits eine Akte geöffnet ist, wird entweder die Flip-Video-Animation abgespielt oder direkt die Analyse gestartet. Wenn bereits eine Animation läuft, wird die Verarbeitung des neuen Datensatzes um 100 ms verzögert, um Konflikte zu vermeiden.
+        :param personen_daten: Eine Liste von Personendatensätzen, die die Informationen über die erkannten Personen enthalten.
+        """
         if not personen_daten:
             return
 
@@ -366,6 +422,12 @@ class ScalingAkteGUI(QGraphicsView):
 
     @pyqtSlot(str, list)
     def handle_pipeline_result(self, status, personen_daten):
+        """
+        Callback-Funktion, die aufgerufen wird, wenn die Pipeline ein Ergebnis zurückgibt. Je nach Status und Inhalt der Personendaten wird entweder die Akte geschlossen oder die Ergebnisse verarbeitet und angezeigt.
+        :param status:
+        :param personen_daten:
+        :return:
+        """
         if status == "EMPTY" or not personen_daten:
             self._auto_close_monitoring_pending = False
             self._auto_close_monitoring_enabled = False
@@ -377,7 +439,9 @@ class ScalingAkteGUI(QGraphicsView):
         self.handle_new_dataset(personen_daten)
 
     def update_descriptions_from_files(self):
-        """Scannt den 'final' Ordner und extrahiert die (ggf. mehrzeilige) 'description'."""
+        """
+        Scannt den 'final' Ordner und extrahiert die (ggf. mehrzeilige) 'description'.
+        """
         if not self.description_repo.exists():
             return
 
@@ -416,6 +480,10 @@ class ScalingAkteGUI(QGraphicsView):
                 container.update_stats_from_deepface(emotion=emotion, age=age, gender=gender)
 
     def _refresh_descriptions_for_language(self):
+        """
+        Aktualisiert die angezeigten Beschreibungen in der GUI, wenn die Sprache geändert wird. Diese Funktion wird aufgerufen, nachdem die Übersetzungsfunktion die neuen Texte generiert hat, um sicherzustellen, dass die angezeigten Beschreibungen mit der aktuellen Sprache übereinstimmen.
+        :return:
+        """
         if not self.active_containers:
             return
         for container in self.active_containers:
@@ -428,6 +496,11 @@ class ScalingAkteGUI(QGraphicsView):
                 container.beschreibung.start_typing()
 
     def on_camera_frame(self, frame):
+        """
+        Callback-Funktion, die aufgerufen wird, wenn ein neues Kamera-Frame verfügbar ist. Verarbeitet das Frame, führt Gesichtserkennung durch und aktualisiert die Kamera-Vorschau in der GUI mit den erkannten Gesichtern als Bounding-Boxes.
+        :param frame: Das aktuelle Kamera-Frame, das verarbeitet und in der GUI angezeigt werden soll.
+        :return:
+        """
         if self.camera_pixmap_item is None:
             return
         try:
@@ -478,6 +551,11 @@ class ScalingAkteGUI(QGraphicsView):
 
     @pyqtSlot(bool)
     def on_person_presence_changed(self, is_present):
+        """
+        Callback-Funktion, die aufgerufen wird, wenn sich der Anwesenheitsstatus einer Person ändert. Wenn eine Person erkannt wird, wird der Timer für die "Keine Person erkannt" Warnung gestoppt. Wenn keine Person erkannt wird und die Akte geöffnet ist, wird die Anzahl der verpassten Anwesenheitsprüfungen erhöht und je nach Anzahl der verpassten Prüfungen entweder eine Warnung aktiviert oder die Akte automatisch geschlossen.
+        :param is_present: True, wenn eine Person erkannt wird, False wenn keine Person erkannt wird.
+        :return:
+        """
         self._last_person_present = bool(is_present)
         if is_present:
             self._stop_no_person_timer()
@@ -505,6 +583,10 @@ class ScalingAkteGUI(QGraphicsView):
         self.close_folder(reason="auto_close")
 
     def show_closed_folder(self):
+        """
+        Zeigt die geschlossene Mappe an, indem die Szene bereinigt und das geschlossene Mappe-Bild geladen wird. Es werden auch die Logos und die Kamera-Vorschau mit Rahmen hinzugefügt. Alle relevanten Timer und Zustände werden zurückgesetzt, um sicherzustellen, dass die GUI bereit ist für den nächsten Durchlauf.
+        :return:
+        """
         if self._clear_pipeline_outputs_on_close:
             self._clear_pipeline_output_dirs()
             self._clear_pipeline_outputs_on_close = False
@@ -524,6 +606,7 @@ class ScalingAkteGUI(QGraphicsView):
         if os.path.exists(path):
             self.scene.addPixmap(QPixmap(path).scaled(SCENE_WIDTH, SCENE_HEIGHT, Qt.AspectRatioMode.KeepAspectRatioByExpanding))
 
+        # Statische Logos hinzufügen
         logo_configs = [
             {
                 "path": PATHS.get("logo_bmftr"),
@@ -602,6 +685,10 @@ class ScalingAkteGUI(QGraphicsView):
         self.folder_closed.emit()
 
     def show_animation_with_timer(self):
+        """
+        Entscheidet, ob das Öffnen der Mappe sofort mit einer Animation erfolgen soll oder ob zuerst ein Timer angezeigt wird, basierend auf dem aktuellen Zustand der GUI und der Sichtbarkeit des Timer-Items. Wenn bereits eine Animation läuft oder aktive Container vorhanden sind, wird die Funktion ohne Aktion verlassen. Wenn kein Timer-Item vorhanden ist, wird die Animation sofort gestartet. Wenn das Timer-Item existiert, aber nicht sichtbar ist (z.B. weil es versehentlich geschlossen wurde), wird es entfernt und die Animation wird gestartet. Andernfalls wird der Timer gestartet, um die verbleibende Zeit bis zum automatischen Öffnen anzuzeigen.
+        :return:
+        """
         if self.is_animating or self.active_containers:
             return
         if self.wait_timer_item is None:
@@ -616,6 +703,10 @@ class ScalingAkteGUI(QGraphicsView):
         self._start_wait_timer()
 
     def _start_wait_timer(self):
+        """
+        Startet den Timer, der die verbleibende Zeit bis zum automatischen Öffnen der Mappe anzeigt. Wenn die Entwickleroption aktiviert ist, wird die Animation sofort gestartet, ohne den Timer anzuzeigen.
+        :return:
+        """
         if self.developer_mode:
             self.start_animation()
             return
@@ -633,6 +724,10 @@ class ScalingAkteGUI(QGraphicsView):
         self.wait_timer.start(33)
 
     def _update_wait_timer(self):
+        """
+        Aktualisiert den Fortschritt des Timers, der die verbleibende Zeit bis zum automatischen Öffnen der Mappe anzeigt. Berechnet die verstrichene Zeit seit dem Start des Timers und aktualisiert das Timer-Item entsprechend. Wenn die verbleibende Zeit abgelaufen ist, wird der Timer gestoppt, das Timer-Item ausgeblendet und die Animation zum Öffnen der Mappe gestartet.
+        :return:
+        """
         if self._wait_start_time is None:
             return
         elapsed = time.perf_counter() - self._wait_start_time
@@ -656,6 +751,13 @@ class ScalingAkteGUI(QGraphicsView):
             self.start_animation()
 
     def start_animation(self, checked=False, video_path=PATHS["open_animation"], end_callback=None):
+        """
+    Startet die Animation zum Öffnen oder Schließen der Mappe, abhängig von den übergebenen Parametern. Wenn bereits eine Animation läuft, wird die Funktion ohne Aktion verlassen. Wenn der Parameter 'checked' ein String oder Pfad ist, wird dieser als 'video_path' interpretiert und 'checked' wird auf False gesetzt. Je nach End-Callback und aktuellem Zustand der Mappe wird entweder die Flip-Animation oder die Öffnungsanimation abgespielt. Wenn die angegebene Videodatei nicht existiert, wird stattdessen die Funktion zum Anzeigen der offenen Mappe aufgerufen.
+        :param checked: Ein boolescher Wert oder ein String/Pfad. Wenn es ein String oder Pfad ist, wird er als 'video_path' interpretiert und 'checked' wird auf False gesetzt. Wenn es ein boolescher Wert ist, steuert er die Auswahl der Animation basierend auf dem End-Callback und dem aktuellen Zustand der Mappe.
+        :param video_path:
+        :param end_callback:
+        :return:
+        """
         if isinstance(checked, (str, os.PathLike)):
             video_path = checked
             checked = False
@@ -676,6 +778,10 @@ class ScalingAkteGUI(QGraphicsView):
         QTimer.singleShot(10, self.update_video_frame)
 
     def update_video_frame(self):
+        """
+        Aktualisiert das aktuelle Frame der laufenden Animation, indem es das nächste Frame aus der Videodatei liest, es in ein QPixmap umwandelt und in der Szene anzeigt. Wenn das Ende des Videos erreicht ist, wird die Animation gestoppt, die Videodatei freigegeben und der End-Callback aufgerufen. Wenn während der Animation ein Schließvorgang angefordert wird, wird dieser nach Abschluss der Animation ausgeführt.
+        :return:
+        """
         if not self.is_animating or self.video_item is None or self.video_cap is None:
             return
         ret, frame = self.video_cap.read()
@@ -705,6 +811,10 @@ class ScalingAkteGUI(QGraphicsView):
                 )
 
     def show_open_folder(self):
+        """
+        Zeigt die offene Mappe an, indem die Szene bereinigt und das offene Mappe-Bild geladen wird. Es werden auch die UI-Elemente für die angezeigten Personen eingerichtet und die Beschreibungen aus den Dateien aktualisiert. Alle relevanten Timer und Zustände werden zurückgesetzt, um sicherzustellen, dass die GUI bereit ist, die Ergebnisse der Pipeline anzuzeigen und auf Anwesenheitsänderungen zu reagieren.
+        :return:
+        """
         self._is_open = True
         self._set_state(GUIState.RESULTS_READY)
         self._stop_no_person_timer()
@@ -733,11 +843,17 @@ class ScalingAkteGUI(QGraphicsView):
             self._update_no_person_warning_state()
 
     def show_flip_video(self):
-        """Spielt das Umblättern-Video ab und kehrt danach zur offenen Mappe zurück."""
+        """
+        Spielt das Umblättern-Video ab und kehrt danach zur offenen Mappe zurück.
+        """
         self._set_state(GUIState.FLIPPING)
         self.start_animation(PATHS["flip_animation"], end_callback=self.show_open_folder)
 
     def setup_ui_elements(self):
+        """
+        Richtet die UI-Elemente für die angezeigten Personen ein, basierend auf den bereitgestellten Personendaten. Es werden Container für jede erkannte Person erstellt, die Beschreibungen aktualisiert und die Gesichtsbilder als Skizzen dargestellt. Die Container werden in der Szene positioniert und für Mausinteraktionen deaktiviert, um sicherzustellen, dass sie nur zur Anzeige von Informationen dienen.
+        :return:
+        """
         self.active_containers = []
         pos_list = [(230, 80), (1000, 80), (230, 560), (1000, 560)]
         for i, pos in enumerate(pos_list):
@@ -762,6 +878,10 @@ class ScalingAkteGUI(QGraphicsView):
                 self.active_containers.append(container)
 
     def setup_buttons(self):
+        """
+        Richtet die Schaltflächen für die Sprachumschaltung und das Zurücksetzen der Akte ein. Die Schaltflächen werden in der Szene positioniert, mit den entsprechenden Grafiken versehen und mit den entsprechenden Callback-Funktionen verbunden, um die gewünschten Aktionen auszuführen, wenn sie angeklickt werden.
+        :return:
+        """
         button_scale = 0.1
         right_margin = 40
         top_margin = 80
@@ -791,20 +911,25 @@ class ScalingAkteGUI(QGraphicsView):
         return self.config_service.load()
 
     def _save_config(self):
+        """Speichert die aktuelle Konfiguration zurück in die config.yaml."""
         self.config_service.save(self.config)
 
     def _ensure_config_defaults(self, config):
+        """Stellt sicher, dass alle erforderlichen Standardwerte in der Konfiguration vorhanden sind, um eine konsistente und vollständige Konfiguration zu gewährleisten. Diese Funktion wird aufgerufen, nachdem die Konfiguration geladen wurde, um sicherzustellen, dass alle fehlenden Werte mit den Standardwerten aus der ConfigService ergänzt werden."""
         self.config_service.ensure_defaults(config)
 
     def _get_pipeline_entry(self, model_id):
+        """Sucht in der Pipeline-Konfiguration nach einem Eintrag mit der angegebenen ID und gibt diesen zurück. Wenn kein Eintrag mit der angegebenen ID gefunden wird, wird None zurückgegeben. Diese Funktion wird verwendet, um die spezifischen Einstellungen für verschiedene Modelle oder Komponenten in der Pipeline zu verwalten und zu aktualisieren."""
         pipeline = self.config.setdefault("pipeline", [])
         return next((p for p in pipeline if p.get("id") == model_id), None)
 
     def _update_config_value(self, key, value):
+        """Updatet Werte aus config.yaml"""
         self.config[key] = value
         self._save_config()
 
     def _get_face_yolo_confidence(self):
+        """Liest den Konfidenzwert für die Gesichterkennung aus"""
         face_yolo_cfg = self.config.get("face_yolo", {})
         if isinstance(face_yolo_cfg, dict):
             try:
@@ -817,6 +942,7 @@ class ScalingAkteGUI(QGraphicsView):
             return 0.5
 
     def _update_pipeline_value(self, model_id, key, value):
+        """Updatet Werte in der Pipeline-Konfiguration für ein bestimmtes Modell oder eine bestimmte Komponente, identifiziert durch die model_id. Wenn der Eintrag für die angegebene model_id nicht existiert, wird zuerst sichergestellt, dass die Standardwerte in der Konfiguration vorhanden sind, und dann wird der Eintrag erneut gesucht. Wenn der Eintrag gefunden wird, wird der angegebene Schlüssel mit dem neuen Wert aktualisiert und die Konfiguration wird gespeichert. Diese Funktion ermöglicht es, spezifische Einstellungen für verschiedene Modelle oder Komponenten in der Pipeline dynamisch zu aktualisieren."""
         entry = self._get_pipeline_entry(model_id)
         if entry is None:
             self.config_service.ensure_defaults(self.config)
@@ -827,6 +953,7 @@ class ScalingAkteGUI(QGraphicsView):
         self._save_config()
 
     def _update_pool_value(self, key, value):
+        """Updatet Werte in der Pool-Konfiguration, die für die Verwaltung von zusätzlichen Personen in der Pipeline verwendet wird. Es wird sichergestellt, dass der "pool" Abschnitt in der Konfiguration als Dictionary existiert, bevor der angegebene Schlüssel mit dem neuen Wert aktualisiert wird. Nach dem Update wird die Konfiguration gespeichert und die Pool-Einstellungen werden neu geladen, um sicherzustellen, dass die Änderungen sofort wirksam werden. Diese Funktion ermöglicht es, die Einstellungen für den Pool dynamisch zu aktualisieren, ohne dass die gesamte Pipeline-Konfiguration neu geladen werden muss."""
         pool = self.config.setdefault("pool", {})
         if not isinstance(pool, dict):
             pool = {}
@@ -836,16 +963,19 @@ class ScalingAkteGUI(QGraphicsView):
         self._reload_pool_settings()
 
     def _reload_pool_settings(self):
+        """Lädt die Pool-Einstellungen neu, indem es die Pipeline auffordert, die Pool-Konfiguration erneut zu laden. Diese Funktion wird aufgerufen, nachdem die Pool-Einstellungen in der Konfiguration aktualisiert wurden, um sicherzustellen, dass die Änderungen sofort wirksam werden. Es wird überprüft, ob die Pipeline existiert und über eine Methode zum Neuladen der Pool-Einstellungen verfügt, bevor der Reload angefordert wird."""
         pipeline = getattr(self, "_pipeline", None)
         if pipeline is not None and hasattr(pipeline, "request_pool_reload"):
             pipeline.request_pool_reload()
 
     def _reload_pipeline_settings(self):
+        """Lädt die Pipeline-Einstellungen neu, indem es die Pipeline auffordert, die gesamte Pipeline-Konfiguration erneut zu laden. Diese Funktion wird aufgerufen, nachdem die Pipeline-bezogenen Einstellungen in der Konfiguration aktualisiert wurden, um sicherzustellen, dass die Änderungen sofort wirksam werden. Es wird überprüft, ob die Pipeline existiert und über eine Methode zum Neuladen der Pipeline-Konfiguration verfügt, bevor der Reload angefordert wird."""
         pipeline = getattr(self, "_pipeline", None)
         if pipeline is not None and hasattr(pipeline, "request_pipeline_reload"):
             pipeline.request_pipeline_reload()
 
     def _sync_local_ollama_worker_state(self):
+        """Synchronisiert den Zustand des lokalen Ollama-Workers, indem es die Pipeline auffordert, den Ollama-Worker-Status zu aktualisieren. Diese Funktion wird aufgerufen, nachdem die Ollama-bezogenen Einstellungen in der Konfiguration aktualisiert wurden, um sicherzustellen, dass der lokale Ollama-Worker mit den neuen Einstellungen übereinstimmt. Es wird überprüft, ob die Pipeline existiert und über eine Methode zum Synchronisieren des Ollama-Worker-Zustands verfügt, bevor die Synchronisierung angefordert wird. Wenn ein Fehler auftritt, wird eine Fehlermeldung angezeigt, um den Benutzer über das Problem zu informieren."""
         worker_manager = getattr(self, "_local_worker_manager", None)
         if worker_manager is None:
             return
@@ -860,6 +990,7 @@ class ScalingAkteGUI(QGraphicsView):
             QMessageBox.critical(self, "Ollama-Start fehlgeschlagen", error_message)
 
     def _connect_admin_menu(self):
+        """Verbindet die Signale des Admin-Menüs mit den entsprechenden Callback-Funktionen, um die Änderungen in den Einstellungen zu verarbeiten. Diese Funktion wird aufgerufen"""
         self.admin_menu.photo_delay_changed.connect(self._on_photo_delay_changed)
         self.admin_menu.close_on_no_person_enabled_changed.connect(self._on_close_on_no_person_enabled_changed)
         self.admin_menu.close_on_no_person_changed.connect(self._on_close_on_no_person_changed)
@@ -882,6 +1013,7 @@ class ScalingAkteGUI(QGraphicsView):
         self.admin_menu.reset_defaults_requested.connect(self._reset_admin_settings_to_defaults)
 
     def _sync_admin_menu_with_config(self):
+        """ Synchronisiert die Einstellungen im Admin-Menü mit den aktuellen Werten in der Konfiguration, um sicherzustellen, dass die angezeigten Werte im Admin-Menü mit den tatsächlich verwendeten Einstellungen übereinstimmen. Diese Funktion wird aufgerufen, nachdem die Konfiguration geladen oder aktualisiert wurde, um sicherzustellen, dass alle fehlenden Werte mit den Standardwerten aus der ConfigService ergänzt werden und dass die angezeigten Werte mit den aktuellen Einstellungen übereinstimmen."""
         defaults = self.config_service.get_default_admin_settings()
         moondream = self._get_pipeline_entry("moondream") or {}
         ollama = self._get_pipeline_entry("ollama") or {}
@@ -924,6 +1056,7 @@ class ScalingAkteGUI(QGraphicsView):
         self.admin_menu.apply_settings(settings)
 
     def _apply_runtime_settings_from_config(self):
+        """Wendet die relevanten Einstellungen aus der Konfiguration auf die Laufzeitwerte der GUI an, um sicherzustellen, dass die GUI mit den aktuellen Einstellungen übereinstimmt. Diese Funktion wird aufgerufen, nachdem die Konfiguration geladen oder aktualisiert wurde, um sicherzustellen, dass die Laufzeitwerte der GUI mit den in der Konfiguration festgelegten Werten synchronisiert sind. Es werden die Standardwerte aus der ConfigService verwendet, um fehlende Werte in der Konfiguration zu ergänzen und sicherzustellen, dass alle erforderlichen Werte vorhanden sind, bevor sie auf die Laufzeitwerte angewendet werden."""
         defaults = self.config_service.get_default_config()
         self.photo_delay = int(self.config.get("photo_delay", defaults["photo_delay"]))
         self.reset_countdown_seconds = int(
@@ -947,6 +1080,7 @@ class ScalingAkteGUI(QGraphicsView):
         self.developer_mode = bool(self.config.get("developer_mode", defaults["developer_mode"]))
 
     def _reset_admin_settings_to_defaults(self):
+        """Setzt die Admin-Einstellungen in der Konfiguration auf die Standardwerte zurück, indem die ConfigService verwendet wird, um die Standardwerte zu erhalten und in der aktuellen Konfiguration zu speichern. Nach dem Reset werden die Laufzeitwerte und die Admin-UI sofort neu synchronisiert, damit der Reset direkt sichtbar ist. Es werden auch relevante Timer gestoppt oder gestartet, um sicherzustellen, dass die GUI mit den neuen Einstellungen korrekt funktioniert. Schließlich werden die Pool- und Pipeline-Einstellungen neu geladen und der Zustand des lokalen Ollama-Workers synchronisiert, um sicherzustellen, dass alle Komponenten der GUI mit den zurückgesetzten Einstellungen übereinstimmen."""
         self.config_service.reset_admin_settings(self.config)
         self._save_config()
         # Laufzeitwerte und Admin-UI sofort neu synchronisieren, damit der Reset direkt sichtbar ist.
@@ -961,16 +1095,25 @@ class ScalingAkteGUI(QGraphicsView):
         self._sync_admin_menu_with_config()
 
     def _on_photo_delay_changed(self, value):
+        """Aktualisiert die Verzögerungszeit für die Fotoaufnahme, indem der übergebene Wert in einen ganzzahligen Wert umgewandelt und auf die Laufzeitvariable angewendet wird. Nach der Aktualisierung wird der neue Wert in der Konfiguration gespeichert, um sicherzustellen, dass die Änderung auch nach einem Neustart der Anwendung erhalten bleibt. Diese Funktion wird aufgerufen, wenn die entsprechende Einstellung im Admin-Menü geändert wird, um die neue Verzögerungszeit sofort wirksam werden zu lassen."""
         self.photo_delay = int(value)
         self._update_config_value("photo_delay", self.photo_delay)
 
     def _on_close_on_no_person_enabled_changed(self, enabled):
+        """
+        Aktiviert oder deaktiviert Auto-Close und stoppt bei Bedarf den Warn-Timer.
+        :param enabled: True aktiviert Auto-Close, False deaktiviert es.
+        """
         self.close_on_no_person_enabled = bool(enabled)
         self._update_config_value("close_on_no_person_enabled", self.close_on_no_person_enabled)
         if not self.close_on_no_person_enabled:
             self._stop_no_person_timer()
 
     def _on_close_on_no_person_changed(self, value):
+        """
+        Aktualisiert die Auto-Close-Dauer und setzt den Warnstatus bei Abwesenheit.
+        :param value: Neue Dauer in Sekunden.
+        """
         self.close_on_no_person_seconds = max(5, min(60, int(value)))
         self._update_config_value("close_on_no_person_seconds", self.close_on_no_person_seconds)
         if self.close_on_no_person_enabled and self._is_open and not self._last_person_present:
@@ -978,16 +1121,28 @@ class ScalingAkteGUI(QGraphicsView):
             self._update_no_person_warning_state()
 
     def _on_animation_speed_changed(self, value):
+        """
+        Aktualisiert die Animationsgeschwindigkeit in der Konfiguration.
+        :param value: Neue Geschwindigkeit.
+        """
         self.animation_speed = int(value)
         self._update_config_value("animation_speed", self.animation_speed)
 
     def _on_pipeline_timeout_changed(self, value):
+        """
+        Aktualisiert das Pipeline-Timeout und startet den Timer bei aktiver Analyse neu.
+        :param value: Neue Timeout-Dauer in Sekunden.
+        """
         self.pipeline_timeout_seconds = max(1, int(value))
         self._update_config_value("pipeline_timeout_seconds", self.pipeline_timeout_seconds)
         if self.loading_active:
             self._start_pipeline_timeout()
 
     def _on_face_yolo_confidence_changed(self, value):
+        """
+        Speichert die neue Konfidenz fuer Face-YOLO in der Config.
+        :param value: Neuer Konfidenzwert.
+        """
         self.face_yolo_confidence = max(0.10, min(0.90, float(value)))
         face_yolo_cfg = self.config.setdefault("face_yolo", {})
         if not isinstance(face_yolo_cfg, dict):
@@ -999,10 +1154,18 @@ class ScalingAkteGUI(QGraphicsView):
         self._save_config()
 
     def _on_fullscreen_toggled(self, enabled):
+        """
+        Schaltet Vollbild um und speichert die Einstellung.
+        :param enabled: True aktiviert Vollbild.
+        """
         self._set_fullscreen(bool(enabled))
         self._update_config_value("fullscreen", bool(enabled))
 
     def _on_developer_mode_toggled(self, enabled):
+        """
+        Aktiviert oder deaktiviert den Developer-Mode und aktualisiert die Ansicht.
+        :param enabled: True aktiviert den Developer-Mode.
+        """
         self.developer_mode = bool(enabled)
         self._update_config_value("developer_mode", self.developer_mode)
         # Geschlossene Ansicht sofort aktualisieren, damit der Button korrekt ein-/ausgeblendet wird.
@@ -1010,46 +1173,94 @@ class ScalingAkteGUI(QGraphicsView):
             self.show_closed_folder()
 
     def _on_pool_enabled_changed(self, enabled):
+        """
+        Aktiviert oder deaktiviert den Pool.
+        :param enabled: True aktiviert den Pool.
+        """
         self._update_pool_value("enabled", bool(enabled))
 
     def _on_pool_max_extra_changed(self, value):
+        """
+        Setzt die maximale Anzahl zusaetzlicher Personen im Pool.
+        :param value: Maximalwert.
+        """
         pool_value = max(0, min(3, int(value)))
         self._update_pool_value("max_extra_persons", pool_value)
 
     def _on_pool_cooldown_changed(self, value):
+        """
+        Setzt die Pool-Cooldown-Batches.
+        :param value: Neue Anzahl Batches.
+        """
         self._update_pool_value("cooldown_batches", max(0, int(value)))
 
     def _on_moondream_enabled(self, enabled):
+        """
+        Aktiviert oder deaktiviert moondream in der Pipeline.
+        :param enabled: True aktiviert moondream.
+        """
         self._update_pipeline_value("moondream", "enabled", bool(enabled))
         self._reload_pipeline_settings()
 
     def _on_moondream_prompt(self, text):
+        """
+        Aktualisiert den Prompt fuer moondream.
+        :param text: Neuer Prompt.
+        """
         self._update_pipeline_value("moondream", "prompt", text)
 
     def _on_ollama_enabled(self, enabled):
+        """
+        Aktiviert oder deaktiviert ollama und synchronisiert den Worker.
+        :param enabled: True aktiviert ollama.
+        """
         self._update_pipeline_value("ollama", "enabled", bool(enabled))
         self._reload_pipeline_settings()
         self._sync_local_ollama_worker_state()
 
     def _on_ollama_prompt(self, text):
+        """
+        Aktualisiert den Prompt fuer ollama.
+        :param text: Neuer Prompt.
+        """
         self._update_pipeline_value("ollama", "prompt", text)
 
     def _on_deepface_enabled(self, enabled):
+        """
+        Aktiviert oder deaktiviert deepface in der Pipeline.
+        :param enabled: True aktiviert deepface.
+        """
         self._update_pipeline_value("deepface", "enabled", bool(enabled))
         self._reload_pipeline_settings()
 
     def _on_deepface_retinaface_changed(self, enabled):
+        """
+        Setzt die Nutzung von retinaface fuer deepface.
+        :param enabled: True nutzt retinaface.
+        """
         self._update_pipeline_value("deepface", "use_retinaface", bool(enabled))
 
     def _on_fer_enabled(self, enabled):
+        """
+        Aktiviert oder deaktiviert FER in der Pipeline.
+        :param enabled: True aktiviert FER.
+        """
         self._update_pipeline_value("fer", "enabled", bool(enabled))
         self._reload_pipeline_settings()
 
     def _on_llm_model_changed(self, value):
+        """
+        Speichert das gewaehlte LLM-Modell und synchronisiert ollama.
+        :param value: Modell-ID.
+        """
         self._update_config_value("llm_model", value)
         self._sync_local_ollama_worker_state()
 
     def _set_fullscreen(self, enabled):
+        """
+        Setzt den Vollbildstatus der Anwendung.
+        :param enabled: True aktiviert Vollbild.
+        """
         self.is_fullscreen = bool(enabled)
         if self.is_fullscreen:
             self.showMaximized()
@@ -1057,6 +1268,10 @@ class ScalingAkteGUI(QGraphicsView):
             self.showNormal()
 
     def apply_window_state(self):
+        """
+        Wendet den gespeicherten Fensterzustand an.
+        :param: Keine.
+        """
         if self.is_fullscreen:
             self.showMaximized()
         else:
@@ -1076,6 +1291,10 @@ class ScalingAkteGUI(QGraphicsView):
             container.apply_language(language)
 
     def _on_language_button_clicked(self):
+        """
+        Verarbeitet den Sprachbutton-Klick und startet den Cooldown.
+        :param: Keine.
+        """
         # Guard gegen Mehrfachklicks waehrend des Cooldowns
         if self._language_button_cooldown_timer.isActive():
             return
@@ -1083,6 +1302,10 @@ class ScalingAkteGUI(QGraphicsView):
         self._start_language_button_cooldown()
 
     def _set_language_button_enabled_state(self, enabled):
+        """
+        Aktiviert/deaktiviert den Sprachbutton und passt die Opacity an.
+        :param enabled: True aktiviert den Button.
+        """
         btn_language = getattr(self, "btn_language", None)
         if btn_language is None:
             return
@@ -1091,14 +1314,25 @@ class ScalingAkteGUI(QGraphicsView):
         btn_language.setOpacity(1.0 if enabled else 0.65)
 
     def _start_language_button_cooldown(self):
+        """
+        Startet den Cooldown fuer den Sprachbutton.
+        :param: Keine.
+        """
         self._set_language_button_enabled_state(False)
         self._language_button_cooldown_timer.start(self._language_button_cooldown_ms)
 
     def _on_language_button_cooldown_timeout(self):
+        """
+        Beendet den Cooldown und aktiviert den Sprachbutton wieder.
+        :param: Keine.
+        """
         self._set_language_button_enabled_state(True)
 
     def switch_language_logic(self):
-        """Wechselt die UI-Sprache und synchronisiert config.yaml."""
+        """
+        Wechselt die UI-Sprache und synchronisiert config.yaml.
+        :param: Keine.
+        """
         if self.btn_language.is_toggled:
             self.current_language = "en"
             self._apply_language_to_containers("en")
@@ -1113,11 +1347,20 @@ class ScalingAkteGUI(QGraphicsView):
         self._refresh_descriptions_for_language()
 
     def reset_logic(self):
+        """
+        Startet den Reset-Countdown oder schliesst die Akte sofort.
+        :param: Keine.
+        """
         if self._start_reset_countdown():
             return
         self.close_folder(reason="manual")
 
     def _start_reset_countdown(self):
+        """
+        Startet den Reset-Countdown.
+        :param: Keine.
+        :return: True wenn der Countdown aktiv ist oder gestartet wurde, sonst False.
+        """
         if not self._is_open or not hasattr(self, "btn_reset"):
             return False
         if self._reset_countdown_timer.isActive():
@@ -1144,6 +1387,10 @@ class ScalingAkteGUI(QGraphicsView):
         return True
 
     def _update_reset_countdown(self):
+        """
+        Aktualisiert den Reset-Countdown und fuehrt ggf. den Reset aus.
+        :param: Keine.
+        """
         self._reset_countdown_remaining -= 1
         if self._reset_countdown_item is not None:
             self._reset_countdown_item.set_remaining(self._reset_countdown_remaining)
@@ -1153,12 +1400,20 @@ class ScalingAkteGUI(QGraphicsView):
             self.close_folder(reason="manual_countdown")
 
     def _clear_reset_countdown(self):
+        """
+        Entfernt die Countdown-Anzeige und stellt den Reset-Button wieder her.
+        :param: Keine.
+        """
         if self._reset_countdown_item is not None:
             self.scene.removeItem(self._reset_countdown_item)
             self._reset_countdown_item = None
         self._set_reset_button_empty(False)
 
     def _set_reset_button_empty(self, is_empty):
+        """
+        Tauscht das Reset-Button-Pixmap gegen die leere Variante.
+        :param is_empty: True zeigt die leere Variante.
+        """
         button = getattr(self, "btn_reset", None)
         if button is None:
             return
@@ -1183,6 +1438,10 @@ class ScalingAkteGUI(QGraphicsView):
             self._reset_button_original_pixmap = None
 
     def keyPressEvent(self, event):
+        """
+        Reagiert auf Tastaturevents und oeffnet das Admin-Menue mit E.
+        :param event: Tastaturevent.
+        """
         if event.key() == Qt.Key.Key_E:
             if self.admin_menu.isVisible():
                 self.admin_menu.hide()
@@ -1191,24 +1450,13 @@ class ScalingAkteGUI(QGraphicsView):
                 self.admin_menu.update_geometry(self.size())
                 self.admin_menu.show()
                 self.admin_menu.raise_()
-        if event.key() == Qt.Key.Key_U:
-            neue_personen_liste = [
-                {"titel": "PERSON 1", "geschlecht": "Männlich", "augen": "Braun", "stimmung": "Neutral", "alter": "32",
-                 "gefahr": "GERING", "beschreibung": "Testbeschreibung Person 1."},
-                {"titel": "PERSON 2", "geschlecht": "Weiblich", "augen": "Blau", "stimmung": "Beunruhigt",
-                 "alter": "27", "gefahr": "MITTEL", "beschreibung": "Testbeschreibung Person 2."},
-                {"titel": "PERSON 1", "geschlecht": "Männlich", "augen": "Braun", "stimmung": "Neutral", "alter": "32", "gefahr": "GERING", "beschreibung": "Testbeschreibung Person 1."},
-                {"titel": "PERSON 2", "geschlecht": "Weiblich", "augen": "Blau", "stimmung": "Beunruhigt", "alter": "27", "gefahr": "MITTEL", "beschreibung": "Testbeschreibung Person 2."},
-            ]
-            self.handle_new_dataset(neue_personen_liste)
-        if event.key() == Qt.Key.Key_L:
-            if self.loading_active:
-                self.hide_loading_indicator()
-            else:
-                self.show_loading_indicator()
         super().keyPressEvent(event)
 
     def resizeEvent(self, event):
+        """
+        Passt die View an und aktualisiert die Admin-Menue-Geometrie.
+        :param event: Resize-Event.
+        """
         super().resizeEvent(event)
         self.fitInView(self.scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
         if self.admin_menu.isVisible():
