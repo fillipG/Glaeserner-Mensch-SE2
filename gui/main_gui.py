@@ -81,6 +81,13 @@ class ScalingAkteGUI(QGraphicsView):
         self._reset_button_original_pixmap = None
         self._reset_countdown_item = None
         self._clear_pipeline_outputs_on_close = False
+        self.btn_open = None
+
+        # Cooldown fuer den Sprachwechsel-Button
+        self._language_button_cooldown_ms = 5_000
+        self._language_button_cooldown_timer = QTimer(self)
+        self._language_button_cooldown_timer.setSingleShot(True)
+        self._language_button_cooldown_timer.timeout.connect(self._on_language_button_cooldown_timeout)
 
         self.config_service = ConfigService(default_llm_value=LLM_OPTIONS[0]["value"])
         self.config = self._load_config()
@@ -531,7 +538,7 @@ class ScalingAkteGUI(QGraphicsView):
             {
                 "path": PATHS.get("logo_th_owl"),
                 "scale": 0.5,
-                "pos": (400, 200),
+                "pos": (30, 200),
             }
         ]
         for cfg in logo_configs:
@@ -552,10 +559,10 @@ class ScalingAkteGUI(QGraphicsView):
             logo_item.setZValue(8)
 
         # KAMERA: Vorschau in der GUI 
-        self._cam_display_w = 800
-        self._cam_display_h = 450
+        self._cam_display_w = 896
+        self._cam_display_h = 504
         cam_x = 20
-        cam_y = (SCENE_HEIGHT - self._cam_display_h) // 2
+        cam_y = ((SCENE_HEIGHT - self._cam_display_h) // 2)-30
 
         border = self.scene.addRect(cam_x - 3, cam_y - 3, self._cam_display_w + 6, self._cam_display_h + 6)
         border.setPen(QPen(QColor("#f4e4bc"), 3))
@@ -582,13 +589,15 @@ class ScalingAkteGUI(QGraphicsView):
                                     SCENE_HEIGHT - self.wait_timer_item.diameter - 120)
         #Hier endet erstmal die Kamera- und Timer-Setup-Phase
 
-        self.btn_open = QPushButton("Mappe öffnen")
-        self.btn_open.setFixedSize(300, 80)
-        self.btn_open.setStyleSheet(
-            "QPushButton { background-color: #3d2b1f; color: #f4e4bc; border: 3px solid #f4e4bc; border-radius: 15px; font-family: 'Graduate'; font-size: 24px; font-weight: bold; } QPushButton:hover { background-color: #5a4030; }")
-        self.btn_open.clicked.connect(self.show_animation_with_timer)
-        proxy = self.scene.addWidget(self.btn_open)
-        proxy.setPos(50, 50)
+        self.btn_open = None
+        if self.developer_mode:
+            self.btn_open = QPushButton("Mappe öffnen")
+            self.btn_open.setFixedSize(300, 80)
+            self.btn_open.setStyleSheet(
+                "QPushButton { background-color: #3d2b1f; color: #f4e4bc; border: 3px solid #f4e4bc; border-radius: 15px; font-family: 'Graduate'; font-size: 24px; font-weight: bold; } QPushButton:hover { background-color: #5a4030; }")
+            self.btn_open.clicked.connect(self.show_animation_with_timer)
+            proxy = self.scene.addWidget(self.btn_open)
+            proxy.setPos(550, 100)
 
         self.folder_closed.emit()
 
@@ -618,8 +627,9 @@ class ScalingAkteGUI(QGraphicsView):
             return
         self.wait_timer_item.set_progress(0.0, duration)
         self.wait_timer_item.show()
-        if hasattr(self, "btn_open"):
-            self.btn_open.setEnabled(False)
+        btn_open = getattr(self, "btn_open", None)
+        if btn_open is not None:
+            btn_open.setEnabled(False)
         self.wait_timer.start(33)
 
     def _update_wait_timer(self):
@@ -640,8 +650,9 @@ class ScalingAkteGUI(QGraphicsView):
                     self.wait_timer_item.hide()
                 except RuntimeError:
                     self.wait_timer_item = None
-            if hasattr(self, "btn_open"):
-                self.btn_open.setEnabled(True)
+            btn_open = getattr(self, "btn_open", None)
+            if btn_open is not None:
+                btn_open.setEnabled(True)
             self.start_animation()
 
     def start_animation(self, checked=False, video_path=PATHS["open_animation"], end_callback=None):
@@ -765,7 +776,8 @@ class ScalingAkteGUI(QGraphicsView):
             self.btn_language.is_toggled = True
             self.btn_language.current_pixmap = self.btn_language.pixmap2
             self.btn_language.update()
-        self.btn_language.clicked.connect(self.switch_language_logic)
+        self._set_language_button_enabled_state(not self._language_button_cooldown_timer.isActive())
+        self.btn_language.clicked.connect(self._on_language_button_clicked)
 
         self.btn_reset = AnimatedGraphicsButton(self._reset_button_pixmap_path, scale=button_scale)
         w2 = self.btn_reset.pixmap1.width() * button_scale
@@ -993,6 +1005,9 @@ class ScalingAkteGUI(QGraphicsView):
     def _on_developer_mode_toggled(self, enabled):
         self.developer_mode = bool(enabled)
         self._update_config_value("developer_mode", self.developer_mode)
+        # Geschlossene Ansicht sofort aktualisieren, damit der Button korrekt ein-/ausgeblendet wird.
+        if not self._is_open and not self.is_animating:
+            self.show_closed_folder()
 
     def _on_pool_enabled_changed(self, enabled):
         self._update_pool_value("enabled", bool(enabled))
@@ -1059,6 +1074,28 @@ class ScalingAkteGUI(QGraphicsView):
         """Setzt die Sprache für alle aktiven Container."""
         for container in self.active_containers:
             container.apply_language(language)
+
+    def _on_language_button_clicked(self):
+        # Guard gegen Mehrfachklicks waehrend des Cooldowns
+        if self._language_button_cooldown_timer.isActive():
+            return
+        self.switch_language_logic()
+        self._start_language_button_cooldown()
+
+    def _set_language_button_enabled_state(self, enabled):
+        btn_language = getattr(self, "btn_language", None)
+        if btn_language is None:
+            return
+        btn_language.setEnabled(bool(enabled))
+        # Leicht ausgegraut, solange der Button gesperrt ist
+        btn_language.setOpacity(1.0 if enabled else 0.65)
+
+    def _start_language_button_cooldown(self):
+        self._set_language_button_enabled_state(False)
+        self._language_button_cooldown_timer.start(self._language_button_cooldown_ms)
+
+    def _on_language_button_cooldown_timeout(self):
+        self._set_language_button_enabled_state(True)
 
     def switch_language_logic(self):
         """Wechselt die UI-Sprache und synchronisiert config.yaml."""
@@ -1177,9 +1214,3 @@ class ScalingAkteGUI(QGraphicsView):
         if self.admin_menu.isVisible():
             self.admin_menu.update_geometry(self.size())
 
-
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    window = ScalingAkteGUI()
-    window.apply_window_state()
-    sys.exit(app.exec())

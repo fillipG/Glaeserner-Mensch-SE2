@@ -5,7 +5,6 @@
 import ollama
 import os
 import yaml
-from google import genai
 import os
 
 
@@ -59,7 +58,7 @@ if __name__ == "__main__":
     my_prompt = "Schreibe einen Kriminalbericht ueber eine fiktive Person. die Personenbeschreibung ist bereits erfolgt. Schreibe nur, was die person verbrochen haben koennte in einem Fliesstext. BEachte dabei, dass es sich um ein Verbrechen in der Stasi handelt. Die ausgabe soll nicht mehr als 50 Woerter haben. Antworte moeglichst kurz und versuche etwas lustiges in die story einzubauen. Die story muss nicht erklaert sein. Es reicht einfach nur ein Verbrechen darzustellen"
 
     print("KI denkt nach...")
-    story = generate_ai_response(my_prompt, "phi3:3.8b")
+    story = generate_ai_response(my_prompt, "llama3.2:1b")
 
     print("\n--- Generierte Story ---")
     print(story)

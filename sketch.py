@@ -3,13 +3,53 @@ import numpy as np
 import os
 
 
-def create_advanced_sketch(image_path_or_img, output_path=None, delete_input=False):
-    """Erstellt eine Skizze und gibt das Bild (numpy-Array) zurueck."""
-    # 1. Bild laden
+def _prepare_bgr_and_alpha(image_path_or_img):
+    """Normalisiert Eingaben auf BGR und optionale Alpha-Maske."""
     if isinstance(image_path_or_img, (str, os.PathLike)):
-        img = cv2.imread(str(image_path_or_img))
+        # Unchanged laden, damit Alpha-Kanal bei PNGs erhalten bleibt
+        img = cv2.imread(str(image_path_or_img), cv2.IMREAD_UNCHANGED)
     else:
         img = image_path_or_img
+
+    if img is None:
+        return None, None
+
+    if img.ndim == 2:
+        return cv2.cvtColor(img, cv2.COLOR_GRAY2BGR), None
+
+    if img.ndim != 3:
+        raise ValueError(f"Ungueltige Bildform: {img.shape}")
+
+    channels = img.shape[2]
+
+    if channels == 1:
+        return cv2.cvtColor(img, cv2.COLOR_GRAY2BGR), None
+
+    if channels == 3:
+        return img, None
+
+    if channels == 4:
+        bgr = img[:, :, :3].astype(np.float32)
+        alpha = img[:, :, 3].astype(np.float32) / 255.0
+
+        # Transparenz auf weissen Hintergrund komponieren
+        white_bg = np.full_like(bgr, 255, dtype=np.float32)
+        bgr_composited = (bgr * alpha[..., None] + white_bg * (1.0 - alpha[..., None])).astype(np.uint8)
+
+        alpha_mask = (alpha * 255).astype(np.uint8)
+        return bgr_composited, alpha_mask
+
+    raise ValueError(f"Nicht unterstuetzte Kanalanzahl: {channels}")
+
+
+def create_advanced_sketch(image_path_or_img, output_path=None, delete_input=False):
+    """Erstellt eine Skizze und gibt das Bild (numpy-Array) zurueck."""
+    try:
+        img, alpha_mask = _prepare_bgr_and_alpha(image_path_or_img)
+    except ValueError as e:
+        print(f"Fehler: {e}")
+        return None
+
     if img is None:
         print("Fehler: Bild konnte nicht geladen werden. Pruefe den Pfad!")
         return None
@@ -25,8 +65,8 @@ def create_advanced_sketch(image_path_or_img, output_path=None, delete_input=Fal
     # 4. GAMMA-KORREKTUR - Dunkelt Mitteltone ab fuer mehr Tiefe
     # gamma < 1.0 macht das Bild kontrastreicher in den Schatten
     gamma = 0.8
-    invGamma = 1.0 / gamma
-    table = np.array([((i / 255.0) ** invGamma) * 255 for i in np.arange(0, 256)]).astype("uint8")
+    inv_gamma = 1.0 / gamma
+    table = np.array([((i / 255.0) ** inv_gamma) * 255 for i in np.arange(0, 256)], dtype=np.uint8)
     gray_final = cv2.LUT(gray_enhanced, table)
 
     # 5. SKIZZEN-PROZESS (Color Dodge)
@@ -43,14 +83,19 @@ def create_advanced_sketch(image_path_or_img, output_path=None, delete_input=Fal
     # Division fuer den Sketch-Effekt
     sketch = cv2.divide(gray_final, inverted_blurred, scale=256.0)
 
+    # Transparente Ursprungsbereiche sauber weiss halten
+    if alpha_mask is not None:
+        a = alpha_mask.astype(np.float32) / 255.0
+        sketch = (sketch.astype(np.float32) * a + 255.0 * (1.0 - a)).astype(np.uint8)
+
     # 6. Optional speichern
     if output_path:
         cv2.imwrite(str(output_path), sketch)
         print(f"Optimierte Skizze gespeichert unter: {output_path}")
 
     # 7. Optional die Eingabedatei loeschen
-    if delete_input and isinstance(image_path_or_img, (str, os.PathLike)) and os.path.exists(image_path_or_img):
-        os.remove(image_path_or_img)
+    if delete_input and isinstance(image_path_or_img, (str, os.PathLike)) and os.path.exists(str(image_path_or_img)):
+        os.remove(str(image_path_or_img))
         print(f"Originalbild geloescht: {image_path_or_img}")
 
     return sketch
@@ -59,6 +104,6 @@ def create_advanced_sketch(image_path_or_img, output_path=None, delete_input=Fal
 if __name__ == "__main__":
     # --- ANWENDUNG ---
     # Pfade anpassen (Nutze r"PFAD" fuer Windows-Pfade mit Backslashes)
-    input_file = r"D:/Downloads/face4.jpg"
-    output_file = r"D:/Downloads/face4_sketch.jpg"
+    input_file = r"General ordner/sketch/face1.png"
+    output_file = r"C:/Users/Dennis/Downloads/face4_sketch.jpg"
     create_advanced_sketch(input_file, output_file)
