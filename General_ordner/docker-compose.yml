@@ -55,12 +55,14 @@ services:
     volumes:
       - .:/app
       - .:/main_image:/app/main_image
+      - ./deepface_weights:/root/.deepface/weights
       - ./docker-compose-deepface/deepface_inbox:/app/deepface_inbox
       - ./docker-compose-deepface:/app
       - ./faces_yolo:/app/faces_yolo
       - ./final:/app/final
     environment:
       - PYTHONUNBUFFERED=1
+    restart: unless-stopped
 
   emotion-scanner:
     build: ./docker-compose-fer
