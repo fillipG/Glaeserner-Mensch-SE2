@@ -1262,9 +1262,14 @@ class ScalingAkteGUI(QGraphicsView):
         :param enabled: True aktiviert Vollbild.
         """
         self.is_fullscreen = bool(enabled)
+
+        # Frameless-Flag dynamisch setzen, damit Fullscreen ohne Fensterrahmen erscheint.
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint, self.is_fullscreen)
+
         if self.is_fullscreen:
-            self.showMaximized()
+            self.showFullScreen()
         else:
+            # Beim Verlassen von Fullscreen wieder normales, eingerahmtes Fenster anzeigen.
             self.showNormal()
 
     def apply_window_state(self):
@@ -1272,10 +1277,7 @@ class ScalingAkteGUI(QGraphicsView):
         Wendet den gespeicherten Fensterzustand an.
         :param: Keine.
         """
-        if self.is_fullscreen:
-            self.showMaximized()
-        else:
-            self.show()
+        self._set_fullscreen(self.is_fullscreen)
 
     def _load_language_from_config(self):
         """Liest die Sprache aus config.yaml, Standard ist 'de'."""
