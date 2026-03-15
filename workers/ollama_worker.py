@@ -12,6 +12,12 @@ CONFIG_PATH = REPO_ROOT / "config.yaml"
 DEFAULT_MODEL = "qwen2.5:3b"
 
 
+def normalize_single_paragraph(text):
+    if not isinstance(text, str):
+        return ""
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def load_config():
     try:
         with open(CONFIG_PATH, "r", encoding="utf-8") as f:
@@ -76,7 +82,7 @@ def process_file(filename, worker_config):
             model=model_name,
             messages=[{"role": "user", "content": prompt}],
         )
-        description = response["message"]["content"].strip()
+        description = normalize_single_paragraph(response["message"]["content"])
     except Exception as exc:
         print(f"[OLLAMA] Fehler bei {filename}: {exc}")
         return False
@@ -96,10 +102,11 @@ def process_file_passthrough(filename, moondream_data):
     if base_name.endswith("_ollama"):
         base_name = base_name[:-7]
 
+    description = normalize_single_paragraph(moondream_data.get("moondream_description", ""))
     output_path = PROCESSED_DIR / f"{base_name}_moondream.yaml"
     output_data = {
         "prompt": moondream_data.get("moondream_prompt", ""),
-        "description": moondream_data.get("moondream_description", ""),
+        "description": description,
         "source_model": "moondream",
     }
     print(f"[{base_name.upper()}] OLLAMA disabled, forwarding MOONDREAM to FINAL")

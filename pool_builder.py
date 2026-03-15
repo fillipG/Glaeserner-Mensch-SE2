@@ -28,6 +28,7 @@ import importlib.util
 import json
 import os
 import random
+import re
 import shutil
 import subprocess
 import sys
@@ -77,7 +78,8 @@ DEFAULT_OLLAMA_PROMPT = (
     "Make sure it is a crime within the Stasi context.\n"
     "The output must be between 30 and 50 words long.\n"
     "Stay within this range and try to make it a little funny.\n"
-    "The story does not need to be explained. It is enough to show one crime."
+    "The story does not need to be explained. It is enough to show one crime.\n"
+    "Output only a single paragraph with no line breaks."
 )
 POOL_SOURCE_PROMPT = "Auto-generated from face crop and DeepFace attributes by pool_builder."
 DEFAULT_FACE_CONFIDENCE = 0.5
@@ -91,6 +93,13 @@ HAAR_CASCADE_FILES = (
 EMOTIONEN = ["happy", "sad", "angry", "surprised", "fearful", "disgusted", "neutral"]
 GESCHLECHTER = ["Mann", "Frau"]
 ALTER_RANGE = (7, 95)
+
+
+def normalize_single_paragraph(text):
+    if not isinstance(text, str):
+        return ""
+    return re.sub(r"\s+", " ", text).strip()
+
 
 DESCRIPTION_TEMPLATES = [
     "Person wears a bright yellow hazmat suit and carries a clipboard. Last seen arguing with a vending machine at the central station.",
@@ -596,11 +605,12 @@ def generate_ollama_description(source_description, ollama_settings):
     model_name = ollama_settings.get("model", "qwen2.5:3b")
 
     if not ollama_settings.get("enabled", True):
+        description = normalize_single_paragraph(source_description)
         return {
             "prompt": prompt_template,
             "source_prompt": POOL_SOURCE_PROMPT,
             "source_description": source_description,
-            "description": source_description,
+            "description": description,
         }
 
     prompt = f"Person description: {source_description}\n\n{prompt_template}"
@@ -608,7 +618,7 @@ def generate_ollama_description(source_description, ollama_settings):
         model=model_name,
         messages=[{"role": "user", "content": prompt}],
     )
-    description = response["message"]["content"].strip()
+    description = normalize_single_paragraph(response["message"]["content"])
     return {
         "prompt": prompt_template,
         "source_prompt": POOL_SOURCE_PROMPT,

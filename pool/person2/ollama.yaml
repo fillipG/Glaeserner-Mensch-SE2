@@ -10,10 +10,13 @@ prompt: 'Write a criminal report about a fictional person.
 
   Stay within this range and try to make it a little funny.
 
-  The story does not need to be explained. It is enough to show one crime.'
+  The story does not need to be explained. It is enough to show one crime.
+
+  Output only a single paragraph with no line breaks.'
 source_prompt: Auto-generated from face crop and DeepFace attributes by pool_builder.
-source_description: 'Reference label: Günther. Approximate age: 46. Perceived gender:
-  Mann. Dominant emotion: fear. The text was auto-generated from a cropped portrait
+source_description: 'Reference label: Gisela. Approximate age: 32. Perceived gender:
+  Frau. Dominant emotion: neutral. The text was auto-generated from a cropped portrait
   image for the museum pool.'
-description: Günther, 46, walked into the museum pool under suspicion of a Stasi-era
-  espionage.
+description: Gisela, Frau, aged 32, had her fingerprints stolen during a quiet stroll
+  in the museum pool, hinting at a Stasi-inspired prank gone awry but remains a mystery
+  who took them.

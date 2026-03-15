@@ -10,10 +10,12 @@ prompt: 'Write a criminal report about a fictional person.
 
   Stay within this range and try to make it a little funny.
 
-  The story does not need to be explained. It is enough to show one crime.'
+  The story does not need to be explained. It is enough to show one crime.
+
+  Output only a single paragraph with no line breaks.'
 source_prompt: Auto-generated from face crop and DeepFace attributes by pool_builder.
-source_description: 'Reference label: Guido. Approximate age: 37. Perceived gender:
-  Mann. Dominant emotion: fear. The text was auto-generated from a cropped portrait
+source_description: 'Reference label: Udo. Approximate age: 51. Perceived gender:
+  Mann. Dominant emotion: angry. The text was auto-generated from a cropped portrait
   image for the museum pool.'
-description: Guido, 37, male, feared, might have spied on colleagues for Stasi, adding
-  absurd intrigue to his already suspicious life.
+description: Udo, at 51 and angry as hell, used his Stasi charm to extort museum funds
+  by threatening to expose corruption if he wasn't paid off first.

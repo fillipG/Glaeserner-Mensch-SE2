@@ -10,10 +10,12 @@ prompt: 'Write a criminal report about a fictional person.
 
   Stay within this range and try to make it a little funny.
 
-  The story does not need to be explained. It is enough to show one crime.'
+  The story does not need to be explained. It is enough to show one crime.
+
+  Output only a single paragraph with no line breaks.'
 source_prompt: Auto-generated from face crop and DeepFace attributes by pool_builder.
-source_description: 'Reference label: Ulf Kirsten. Approximate age: 28. Perceived
-  gender: Mann. Dominant emotion: neutral. The text was auto-generated from a cropped
-  portrait image for the museum pool.'
-description: Ulf Kirsten, 28, male, neutral expression. Stasi spy caught emulating
-  a top official, spreading dissenting views.
+source_description: 'Reference label: Günther. Approximate age: 45. Perceived gender:
+  Mann. Dominant emotion: sad. The text was auto-generated from a cropped portrait
+  image for the museum pool.'
+description: Günther, aged 45, seemed an ordinary man in the museum pool photo until
+  we uncovered his secret stash of Stasi documents hidden under the tiles.

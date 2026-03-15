@@ -8,7 +8,7 @@ no_person_check_interval_ms: 2000
 animation_speed: 15
 fullscreen: true
 face_yolo:
-  confidence: 0.5
+  confidence: 0.50
 pool:
   enabled: true
   path: ./pool
@@ -41,7 +41,9 @@ pipeline:
 
     Stay within this range and try to make it a little funny.
 
-    The story does not need to be explained. It is enough to show one crime.'
+    The story does not need to be explained. It is enough to show one crime.
+
+    Output only a single paragraph with no line breaks.'
 - id: deepface
   name: Emotionserkennung
   enabled: true

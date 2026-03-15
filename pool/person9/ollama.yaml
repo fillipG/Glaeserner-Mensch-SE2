@@ -10,10 +10,12 @@ prompt: 'Write a criminal report about a fictional person.
 
   Stay within this range and try to make it a little funny.
 
-  The story does not need to be explained. It is enough to show one crime.'
+  The story does not need to be explained. It is enough to show one crime.
+
+  Output only a single paragraph with no line breaks.'
 source_prompt: Auto-generated from face crop and DeepFace attributes by pool_builder.
-source_description: 'Reference label: Udo. Approximate age: 48. Perceived gender:
-  Mann. Dominant emotion: fear. The text was auto-generated from a cropped portrait
+source_description: 'Reference label: Paul. Approximate age: 35. Perceived gender:
+  Mann. Dominant emotion: angry. The text was auto-generated from a cropped portrait
   image for the museum pool.'
-description: Udo, the 48-year-old male, was found hiding in the museum pool crypt,
-  likely to evade surveillance as part of his Stasi activities.
+description: Paul, aged 35 male, showed signs of anger during questioning yet had
+  alibis for every suspicious incident attributed to him in the Stasi files.

@@ -10,10 +10,12 @@ prompt: 'Write a criminal report about a fictional person.
 
   Stay within this range and try to make it a little funny.
 
-  The story does not need to be explained. It is enough to show one crime.'
+  The story does not need to be explained. It is enough to show one crime.
+
+  Output only a single paragraph with no line breaks.'
 source_prompt: Auto-generated from face crop and DeepFace attributes by pool_builder.
-source_description: 'Reference label: Helga. Approximate age: 30. Perceived gender:
-  Frau. Dominant emotion: sad. The text was auto-generated from a cropped portrait
+source_description: 'Reference label: Werner. Approximate age: 32. Perceived gender:
+  Mann. Dominant emotion: sad. The text was auto-generated from a cropped portrait
   image for the museum pool.'
-description: Helga, Frau, 30, appears to have been involved in embezzling museum funds,
-  possibly to fund her dark interests.
+description: Werner, aged 32 and perceived as male, is suspected of embezzling funds
+  meant for the Stasi's covert operations through fake expense reports.
