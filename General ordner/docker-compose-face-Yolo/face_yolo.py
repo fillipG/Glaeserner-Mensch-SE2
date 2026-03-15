@@ -188,7 +188,8 @@ while True:
                 # 2. Speichern für Deepface (Deepface löscht dieses File nach der Arbeit)
                 face_no_bg.save(os.path.join(DEEPFACE_INBOX, file_name))
 
-
+                # 3. Speichern für Moondream (Moondream löscht dieses File nach der Arbeit)
+                face_no_bg.save(os.path.join(MOONDREAM_INBOX, file_name))
 
                 print(f"  Gesicht {face_nr} an alle Inboxes verteilt.")
                 face_nr += 1
