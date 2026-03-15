@@ -93,7 +93,7 @@ while True:
         # Scannt den Eingangsordner nach Bilddateien, die vom YOLO-Modell
         # dort abgelegt wurden (Namensschema: face_0.jpg, face_1.jpg etc.).
         all_files = [f for f in os.listdir(INPUT_DIR) if f.lower().endswith((".jpg", ".jpeg", ".png"))]
-        valid_files = [f for f in all_files if re.match(r"^body\d+", f, re.IGNORECASE)]
+        valid_files = [f for f in all_files if re.match(r"^face\d+", f, re.IGNORECASE)]
     except Exception as exc:
         print(f"Fehler beim Ordner-Scan: {exc}")
         time.sleep(2)
