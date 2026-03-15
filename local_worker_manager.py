@@ -1,3 +1,20 @@
+"""
+LocalWorkerManager
+------------------
+Diese Klasse verwaltet die lokal laufenden Hilfsprozesse der Windows-Anwendung.
+Im aktuellen Projekt betrifft das vor allem den lokalen Ollama-Dienst und den
+zugehoerigen Python-Worker, der die dateibasierte Kommunikation mit der Pipeline
+uebernimmt.
+
+Zustaendigkeiten:
+1. Pruefen, ob Ollama laut config.yaml aktiv genutzt werden soll.
+2. Sicherstellen, dass der lokale Ollama-Dienst erreichbar ist.
+3. Starten und Stoppen des lokalen workers/ollama_worker.py-Prozesses.
+4. Uebernehmen von Config-Aenderungen ohne kompletten App-Neustart.
+
+AUTOREN: Florian Hoeft
+"""
+
 import importlib.util
 import json
 import os
@@ -13,6 +30,13 @@ import yaml
 
 
 class LocalWorkerManager:
+    """
+    Kapselt alle lokal gestarteten Hilfsprozesse der Hauptanwendung.
+    Dadurch muss main.py nicht selbst verwalten, ob der Ollama-Dienst schon
+    laeuft, welches Modell konfiguriert ist und wann Worker sauber beendet
+    werden muessen.
+    """
+
     def __init__(self, repo_root=None, default_model="qwen2.5:3b"):
         self.repo_root = Path(repo_root or Path(__file__).resolve().parent)
         self.default_model = default_model
@@ -20,6 +44,11 @@ class LocalWorkerManager:
         self._ollama_service_process = None
 
     def start_ollama_worker(self):
+        """
+        Startet den lokalen Ollama-Worker fuer die dateibasierte Pipeline.
+        Falls Ollama in der Config aktiv ist, wird vorher der lokale Dienst
+        inklusive Modellverfuegbarkeit geprueft.
+        """
         # Der lokale Worker laeuft immer, weil er auch den Pass-Through-Fall fuer deaktiviertes
         # Ollama uebernimmt. Der eigentliche Ollama-Preflight ist nur noetig, wenn das Modell
         # wirklich aktiv genutzt werden soll.
@@ -47,21 +76,29 @@ class LocalWorkerManager:
             )
 
     def stop_ollama_worker(self):
+        """Beendet nur den lokalen Python-Worker, nicht aber zwingend den Ollama-Dienst."""
         self._stop_process(self._ollama_worker_process, "Ollama-Worker")
         self._ollama_worker_process = None
 
     def stop_workers(self):
+        """Beendet alle durch den Manager gestarteten lokalen Hilfsprozesse."""
         self.stop_ollama_worker()
         self._stop_process(self._ollama_service_process, "Ollama-Dienst")
         self._ollama_service_process = None
 
     def sync_ollama_worker_state(self):
+        """
+        Uebernimmt Config-Aenderungen kontrolliert im laufenden Betrieb.
+        Der Worker wird dazu einmal beendet und direkt mit der neuen Konfiguration
+        wieder gestartet.
+        """
         # Nach Config-Aenderungen wird der Worker einmal sauber neu gestartet, damit Toggle
         # und Modellwechsel ohne App-Neustart uebernommen werden.
         self.stop_ollama_worker()
         self.start_ollama_worker()
 
     def is_ollama_enabled(self):
+        """Liest aus der zentralen Config, ob das Ollama-Modell aktiv sein soll."""
         config = self._load_config()
         pipeline = config.get("pipeline", [])
         if not isinstance(pipeline, list):
@@ -72,6 +109,10 @@ class LocalWorkerManager:
         return True
 
     def _ensure_ollama_ready(self, model_name):
+        """
+        Prueft die komplette lokale Ollama-Kette vor dem Worker-Start:
+        Python-Modul, laufender API-Dienst und verfuegbares Modell.
+        """
         # Vor echtem Ollama-Betrieb prueft der Manager bewusst die komplette Kette:
         # Python-Modul, lokaler API-Dienst und verfuegbares Modell.
         if importlib.util.find_spec("ollama") is None:
@@ -101,6 +142,7 @@ class LocalWorkerManager:
             )
 
     def _load_configured_model(self):
+        """Liest das aktuell konfigurierte LLM-Modell mit Fallback auf das Standardmodell."""
         config = self._load_config()
         model_name = config.get("llm_model")
         if isinstance(model_name, str) and model_name.strip():
@@ -108,6 +150,7 @@ class LocalWorkerManager:
         return self.default_model
 
     def _load_config(self):
+        """Liest config.yaml robust ein und faellt bei Fehlern auf ein leeres Dict zurueck."""
         config_path = self.repo_root / "config.yaml"
         try:
             with open(config_path, "r", encoding="utf-8") as handle:
@@ -116,6 +159,7 @@ class LocalWorkerManager:
             return {}
 
     def _start_ollama_service(self, ollama_executable):
+        """Startet bei Bedarf den lokalen Hintergrunddienst `ollama serve`."""
         if self._is_process_running(self._ollama_service_process):
             return
 
@@ -128,6 +172,7 @@ class LocalWorkerManager:
         )
 
     def _wait_for_ollama_api(self, timeout_seconds):
+        """Wartet mit Timeout darauf, dass die lokale Ollama-API erreichbar wird."""
         deadline = time.time() + timeout_seconds
         while time.time() < deadline:
             if self._is_ollama_api_ready():
@@ -136,6 +181,7 @@ class LocalWorkerManager:
         return False
 
     def _is_ollama_api_ready(self):
+        """Prueft, ob der lokale Ollama-Dienst auf `127.0.0.1:11434` antwortet."""
         try:
             with urlopen("http://127.0.0.1:11434/api/tags", timeout=2) as response:
                 return response.status == 200
@@ -143,6 +189,7 @@ class LocalWorkerManager:
             return False
 
     def _load_available_models(self):
+        """Liest die lokal installierten Ollama-Modelle ueber die API aus."""
         try:
             with urlopen("http://127.0.0.1:11434/api/tags", timeout=3) as response:
                 payload = json.loads(response.read().decode("utf-8"))
@@ -160,6 +207,7 @@ class LocalWorkerManager:
         return names
 
     def _stop_process(self, process, label):
+        """Beendet einen laufenden Unterprozess kontrolliert mit Terminate/Kill-Fallback."""
         if not self._is_process_running(process):
             return
         process.terminate()
@@ -172,10 +220,12 @@ class LocalWorkerManager:
 
     @staticmethod
     def _is_process_running(process):
+        """Hilfsfunktion fuer den einheitlichen Running-Check von Unterprozessen."""
         return process is not None and process.poll() is None
 
     @staticmethod
     def _windows_creation_flags():
+        """Verhindert auf Windows zusaetzliche Konsolenfenster fuer Hintergrundprozesse."""
         if os.name != "nt":
             return 0
         return subprocess.CREATE_NO_WINDOW

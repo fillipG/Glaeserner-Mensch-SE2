@@ -14,8 +14,9 @@ prompt: 'Write a criminal report about a fictional person.
 
   Output only a single paragraph with no line breaks.'
 source_prompt: Auto-generated from face crop and DeepFace attributes by pool_builder.
-source_description: 'Reference label: Günther. Approximate age: 45. Perceived gender:
-  Mann. Dominant emotion: sad. The text was auto-generated from a cropped portrait
+source_description: 'Reference label: Paul. Approximate age: 30. Perceived gender:
+  Mann. Dominant emotion: happy. The text was auto-generated from a cropped portrait
   image for the museum pool.'
-description: Günther, aged 45, seemed an ordinary man in the museum pool photo until
-  we uncovered his secret stash of Stasi documents hidden under the tiles.
+description: Paul, a man of cheerful disposition, was caught juggling small flags
+  in the museum pool during hours strictly monitored by Stasi eyes for dissenters'
+  signs.

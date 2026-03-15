@@ -14,9 +14,10 @@ prompt: 'Write a criminal report about a fictional person.
 
   Output only a single paragraph with no line breaks.'
 source_prompt: Auto-generated from face crop and DeepFace attributes by pool_builder.
-source_description: 'Reference label: Guido. Approximate age: 40. Perceived gender:
-  Mann. Dominant emotion: neutral. The text was auto-generated from a cropped portrait
+source_description: 'Reference label: Mario. Approximate age: 30. Perceived gender:
+  Mann. Dominant emotion: angry. The text was auto-generated from a cropped portrait
   image for the museum pool.'
-description: Guido, the neutral-looking man in his forties, was found guilty of secretly
-  recording conversations in the museum pool area, believing he was aiding intelligence
-  but actually leaking state secrets through his audio devices hidden under swim caps.
+description: Mario, feeling aggrieved at the museum's pool rules, posted an anonymous
+  online threat accusing them of embezzling millions from state coffers, setting off
+  a fishing expedition that proved he was indeed angry but broke no laws within Stasi
+  context.

@@ -14,10 +14,9 @@ prompt: 'Write a criminal report about a fictional person.
 
   Output only a single paragraph with no line breaks.'
 source_prompt: Auto-generated from face crop and DeepFace attributes by pool_builder.
-source_description: 'Reference label: Eric. Approximate age: 34. Perceived gender:
-  Mann. Dominant emotion: angry. The text was auto-generated from a cropped portrait
+source_description: 'Reference label: Dirk. Approximate age: 31. Perceived gender:
+  Mann. Dominant emotion: neutral. The text was auto-generated from a cropped portrait
   image for the museum pool.'
-description: Eric, our angry 34-year-old male, was found red-faced at the museum pool
-  after hours, holding up a valuable artifact as if it were a trophy. He claimed it
-  belonged to his recently deceased ancestor for insurance purposes, sparking suspicion
-  and an immediate investigation by Stasi-like officials.
+description: Dirk, the neutral appearing 31 year old male, was caught red-handed planning
+  espionage for East German intelligence at his apartment, complete with hidden microphones
+  and fake bookshelves concealing secret files.

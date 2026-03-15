@@ -1,3 +1,20 @@
+"""
+OllamaWorker
+------------
+Dieses Skript ist der lokale dateibasierte Ollama-Worker der Anwendung.
+Er ueberwacht die von Moondream erzeugte Inbox und schreibt daraus die finalen
+Text-YAMLs in den gemeinsamen final-Ordner.
+
+Zustaendigkeiten:
+1. Einlesen der aktuellen Ollama-Konfiguration aus config.yaml.
+2. Ueberwachung von `General ordner/ollama_ai/ollama_inbox`.
+3. Erzeugen der finalen Kriminalgeschichte ueber die lokale Ollama-API.
+4. Pass-Through-Fall, wenn Ollama in der Config deaktiviert ist.
+5. Sicheres Schreiben der Output-YAMLs und Aufraeumen der Inbox-Dateien.
+
+AUTOREN: Florian Hoeft
+"""
+
 import os
 import re
 import time
@@ -12,6 +29,10 @@ CONFIG_PATH = REPO_ROOT / "config.yaml"
 DEFAULT_MODEL = "qwen2.5:3b"
 
 
+# =========================================================
+# KONFIGURATION UND PROMPT-AUFBAU
+# =========================================================
+
 def normalize_single_paragraph(text):
     if not isinstance(text, str):
         return ""
@@ -19,6 +40,7 @@ def normalize_single_paragraph(text):
 
 
 def load_config():
+    """Liest die zentrale config.yaml des Projekts fuer den Worker ein."""
     try:
         with open(CONFIG_PATH, "r", encoding="utf-8") as f:
             return yaml.safe_load(f) or {}
@@ -28,6 +50,10 @@ def load_config():
 
 
 def load_ollama_config():
+    """
+    Liest nur den fuer den Worker relevanten Ollama-Teil aus der Gesamt-Config.
+    Dadurch greifen Toggle und Modellwechsel ohne separaten Worker-Neustart.
+    """
     # Der Worker nutzt dieselbe Config-Datei wie die GUI, damit ein Toggle von Ollama
     # direkt in der naechsten Scan-Runde wirksam wird.
     config = load_config()
@@ -46,6 +72,11 @@ def load_ollama_config():
 
 
 def build_ollama_prompt(moondream_data, prompt_template):
+    """
+    Baut den Prompt fuer die lokale Ollama-Anfrage.
+    Im normalen Live-Betrieb basiert der Text nur auf der Moondream-Beschreibung,
+    nicht auf den parallel erzeugten DeepFace-Daten.
+    """
     description = moondream_data.get("moondream_description", "")
     return (
         f"Personenbeschreibung: {description}\n\n"
@@ -53,7 +84,16 @@ def build_ollama_prompt(moondream_data, prompt_template):
     )
 
 
+# =========================================================
+# DATEIVERARBEITUNG
+# =========================================================
+
 def process_file(filename, worker_config):
+    """
+    Standardpfad fuer eine neue Moondream-Zwischen-YAML.
+    Die Datei wird gelesen, an Ollama uebergeben und danach als finales
+    `_ollama.yaml` in den final-Ordner geschrieben.
+    """
     file_path = INPUT_DIR / filename
 
     try:
@@ -73,9 +113,11 @@ def process_file(filename, worker_config):
     if not worker_config.get("enabled", True):
         return process_file_passthrough(filename, moondream_data)
 
+    # SCHRITT 1: Prompt aus Moondream-Daten und konfiguriertem Template erzeugen
     prompt = build_ollama_prompt(moondream_data, prompt_template)
     model_name = worker_config.get("model", DEFAULT_MODEL) or DEFAULT_MODEL
 
+    # SCHRITT 2: Lokale Ollama-Anfrage ausfuehren
     try:
         import ollama
         response = ollama.chat(
@@ -87,6 +129,7 @@ def process_file(filename, worker_config):
         print(f"[OLLAMA] Fehler bei {filename}: {exc}")
         return False
 
+    # SCHRITT 3: Finales Output-YAML fuer den final-Ordner aufbauen
     output_data = {
         "prompt": prompt_template,
         "source_prompt": moondream_data.get("moondream_prompt", ""),
@@ -98,6 +141,11 @@ def process_file(filename, worker_config):
 
 
 def process_file_passthrough(filename, moondream_data):
+    """
+    Fallback fuer deaktiviertes Ollama.
+    Die von Moondream erzeugte Beschreibung wird dann direkt als finales YAML
+    in den final-Ordner weitergereicht.
+    """
     base_name = Path(filename).stem
     if base_name.endswith("_ollama"):
         base_name = base_name[:-7]
@@ -114,6 +162,11 @@ def process_file_passthrough(filename, moondream_data):
 
 
 def write_output_and_cleanup(file_path, output_path, output_data):
+    """
+    Schreibt das finale YAML und loescht erst danach die Inbox-Datei.
+    So sieht der naechste Pipeline-Schritt nie unvollstaendige oder verlorene
+    Zwischenergebnisse.
+    """
     # Erst nach erfolgreichem Schreiben wird die Inbox-Datei geloescht, damit der naechste
     # Schritt nie auf ein halbfertiges oder verlorenes Ergebnis zeigt.
     try:
@@ -132,12 +185,19 @@ def write_output_and_cleanup(file_path, output_path, output_data):
     return True
 
 
+# =========================================================
+# WORKER-HAUPTSCHLEIFE
+# =========================================================
+
 print(f"[OLLAMA] Worker aktiv. Ueberwache: {INPUT_DIR}")
 
 while True:
+    # Die Config wird in jeder Runde neu gelesen, damit Toggle und Prompt-Aenderungen
+    # ohne Neustart des Workers wirksam werden.
     worker_config = load_ollama_config()
 
     try:
+        # SCHRITT 1: Arbeitsordner sicherstellen und neue Inbox-Dateien suchen
         INPUT_DIR.mkdir(parents=True, exist_ok=True)
         PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
         files = os.listdir(INPUT_DIR)
@@ -151,7 +211,9 @@ while True:
         time.sleep(2)
         continue
 
+    # SCHRITT 2: Gefundene Moondream-Zwischen-YAMLs nacheinander verarbeiten
     for filename in valid_files:
         process_file(filename, worker_config)
 
+    # Kurze Pause, damit der Worker den Ordner nicht im Busy-Loop scannt
     time.sleep(0.5)

@@ -1,0 +1,22 @@
+prompt: 'Write a criminal report about a fictional person.
+
+  The person has already been described. Write only what crime
+
+  the person might have committed in a short flowing paragraph.
+
+  Make sure it is a crime within the Stasi context.
+
+  The output must be between 30 and 50 words long.
+
+  Stay within this range and try to make it a little funny.
+
+  The story does not need to be explained. It is enough to show one crime.
+
+  Output only a single paragraph with no line breaks.'
+source_prompt: Auto-generated from face crop and DeepFace attributes by pool_builder.
+source_description: 'Reference label: Günther. Approximate age: 45. Perceived gender:
+  Mann. Dominant emotion: neutral. The text was auto-generated from a cropped portrait
+  image for the museum pool.'
+description: Günther, aged 45 and seen as male by default, was found at the edge of
+  the museum pool during questioning; suspected of passing secrets to an unsuspecting
+  guard via coded messages hidden in swimming lanes.

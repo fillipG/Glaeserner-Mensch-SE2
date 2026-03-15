@@ -14,8 +14,9 @@ prompt: 'Write a criminal report about a fictional person.
 
   Output only a single paragraph with no line breaks.'
 source_prompt: Auto-generated from face crop and DeepFace attributes by pool_builder.
-source_description: 'Reference label: Helga. Approximate age: 32. Perceived gender:
-  Frau. Dominant emotion: neutral. The text was auto-generated from a cropped portrait
+source_description: 'Reference label: Ronny. Approximate age: 25. Perceived gender:
+  Mann. Dominant emotion: sad. The text was auto-generated from a cropped portrait
   image for the museum pool.'
-description: Helga, the neutral Frau, was last seen accessing classified Stasi documents
-  through an old computer hooked up in her suburban home office.
+description: Ronny, already saddened by his perceived wrongdoings, might have embezzled
+  some of the museum funds meant for renovation and slipped them into his pocket under
+  Stasi influence to avoid scrutiny.

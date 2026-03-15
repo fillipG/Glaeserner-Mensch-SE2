@@ -1,3 +1,21 @@
+"""
+PoolLoader
+----------
+Diese Klasse laedt vorbereitete Pool-Personen aus dem lokalen pool/-Ordner.
+Die Pool-Personen dienen in der Museumsanwendung als Fallback, damit die GUI
+immer vier Akten anzeigen kann, auch wenn in einem realen Durchlauf weniger
+Personen vor der Kamera standen.
+
+Zustaendigkeiten:
+1. Einlesen der Pool-Konfiguration aus config.yaml.
+2. Laden gueltiger Pool-Unterordner inklusive face.jpg, deepface.yaml und ollama.yaml.
+3. Begrenzen der maximalen Zusatzpersonen pro Batch.
+4. Optionales Cooldown-Verhalten, damit dieselben Pool-Personen nicht sofort
+   in aufeinanderfolgenden Durchlaeufen wiederverwendet werden.
+
+AUTOREN: Florian Hoeft
+"""
+
 import copy
 import os
 import random
@@ -6,6 +24,12 @@ import yaml
 
 
 class PoolLoader:
+    """
+    Verwaltet den gesamten vorbereiteten Pool fuer die GUI-Auffuellung.
+    Der Loader liefert keine finalen GUI-Objekte, sondern rohe Pool-Daten,
+    die spaeter vom PipelineManager in das Anzeigeformat ueberfuehrt werden.
+    """
+
     def __init__(self, config_path="config.yaml", config_data=None):
         self.config_path = config_path
         self.enabled = False
@@ -17,6 +41,11 @@ class PoolLoader:
         self.reload(config_data=config_data)
 
     def reload(self, config_data=None):
+        """
+        Liest die Pool-Konfiguration neu ein und laedt den aktuellen Bestand.
+        Diese Methode wird genutzt, wenn sich config.yaml oder der Pool-Ordner
+        zur Laufzeit geaendert haben.
+        """
         config = config_data if isinstance(config_data, dict) else self._load_config()
         pool_cfg = config.get("pool", {}) if isinstance(config, dict) else {}
 
@@ -39,6 +68,7 @@ class PoolLoader:
         self._trim_recent_batches()
 
     def _load_config(self):
+        """Liest die zentrale config.yaml fuer die Pool-Einstellungen ein."""
         if not os.path.exists(self.config_path):
             return {}
 
@@ -50,6 +80,10 @@ class PoolLoader:
             return {}
 
     def _load_pool_persons(self):
+        """
+        Laedt alle gueltigen Unterordner aus dem konfigurierten Pool-Pfad.
+        Jeder Unterordner repraesentiert genau eine vorbereitete Pool-Person.
+        """
         if not self.enabled:
             return []
 
@@ -71,6 +105,11 @@ class PoolLoader:
         return persons
 
     def _load_pool_person(self, person_dir, folder_name):
+        """
+        Validiert und laedt eine einzelne Pool-Person.
+        Akzeptiert neben dem aktuellen ollama.yaml auch den alten Legacy-Fall
+        moondream.yaml, damit bestehende Altbestaende nicht sofort ungueltig sind.
+        """
         face_path = os.path.join(person_dir, "face.jpg")
         deepface_path = os.path.join(person_dir, "deepface.yaml")
         ollama_path = os.path.join(person_dir, "ollama.yaml")
@@ -105,6 +144,11 @@ class PoolLoader:
         }
 
     def get_pool_persons(self, count):
+        """
+        Liefert eine Auswahl aus dem vorbereiteten Pool zur Auffuellung der GUI.
+        Dabei werden das konfigurierte Maximum und optional das Cooldown-Verhalten
+        beruecksichtigt.
+        """
         if not self.enabled:
             return []
 
@@ -119,12 +163,14 @@ class PoolLoader:
         if not available:
             return []
 
+        # SCHRITT 1: Juenst verwendete Pool-Personen optional temporaer ausblenden
         fallback_to_oldest = False
         available = self._apply_cooldown(available)
         if not available:
             available = self._oldest_cooled_down_persons()
             fallback_to_oldest = True
 
+        # SCHRITT 2: Aus den verfuegbaren Personen eine passende Teilmenge ziehen
         if count >= len(available):
             selected = list(available)
             if self.cooldown_batches <= 0:
@@ -141,6 +187,7 @@ class PoolLoader:
         return [copy.deepcopy(person) for person in selected]
 
     def _apply_cooldown(self, available):
+        """Filtert kuerzlich genutzte Pool-Personen fuer die konfigurierte Anzahl an Batches aus."""
         if self.cooldown_batches <= 0:
             return list(available)
 
@@ -151,6 +198,7 @@ class PoolLoader:
         return [person for person in available if person.get("face_id") not in blocked_ids]
 
     def _remember_batch(self, selected):
+        """Merkt sich die IDs der zuletzt verwendeten Pool-Personen fuer den Cooldown."""
         if self.cooldown_batches <= 0:
             return
 
@@ -162,6 +210,7 @@ class PoolLoader:
         self._trim_recent_batches()
 
     def _trim_recent_batches(self):
+        """Begrenzt den internen Cooldown-Speicher auf die konfigurierte Batch-Anzahl."""
         if self.cooldown_batches <= 0:
             self.recent_batches = []
             return
@@ -170,6 +219,11 @@ class PoolLoader:
             self.recent_batches = self.recent_batches[-self.cooldown_batches:]
 
     def _oldest_cooled_down_persons(self):
+        """
+        Fallback, wenn durch den Cooldown aktuell niemand mehr direkt verfuegbar ist.
+        In diesem Fall werden die am laengsten nicht verwendeten Pool-Personen zuerst
+        zurueckgegeben.
+        """
         if not self.pool_persons:
             return []
 

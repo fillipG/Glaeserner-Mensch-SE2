@@ -14,9 +14,9 @@ prompt: 'Write a criminal report about a fictional person.
 
   Output only a single paragraph with no line breaks.'
 source_prompt: Auto-generated from face crop and DeepFace attributes by pool_builder.
-source_description: 'Reference label: Gustaf. Approximate age: 49. Perceived gender:
-  Mann. Dominant emotion: angry. The text was auto-generated from a cropped portrait
+source_description: 'Reference label: Olaf. Approximate age: 38. Perceived gender:
+  Mann. Dominant emotion: neutral. The text was auto-generated from a cropped portrait
   image for the museum pool.'
-description: Gustaf, aged 49, sporting his Stasi badge, was caught hiding contraband
-  documents under the fake smile in his museum pool photo, an act that could have
-  drowned many secrets had it not been for quick thinking investigators.
+description: Olaf, the neutral-sounding individual at 38, was found hiding Stasi files
+  under his fingernails after a routine security check revealed he had an unusual
+  number of mysterious stamps on his computer keyboard.

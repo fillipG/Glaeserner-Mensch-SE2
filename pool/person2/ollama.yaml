@@ -14,9 +14,9 @@ prompt: 'Write a criminal report about a fictional person.
 
   Output only a single paragraph with no line breaks.'
 source_prompt: Auto-generated from face crop and DeepFace attributes by pool_builder.
-source_description: 'Reference label: Gisela. Approximate age: 32. Perceived gender:
-  Frau. Dominant emotion: neutral. The text was auto-generated from a cropped portrait
+source_description: 'Reference label: Manfred. Approximate age: 30. Perceived gender:
+  Mann. Dominant emotion: neutral. The text was auto-generated from a cropped portrait
   image for the museum pool.'
-description: Gisela, Frau, aged 32, had her fingerprints stolen during a quiet stroll
-  in the museum pool, hinting at a Stasi-inspired prank gone awry but remains a mystery
-  who took them.
+description: Manfred, the neutral-looking man of 30, was found in possession of encoded
+  documents linked to a missing scientist suggesting he might have been involved in
+  Stasi’s covert operations for information gathering.

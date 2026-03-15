@@ -14,8 +14,9 @@ prompt: 'Write a criminal report about a fictional person.
 
   Output only a single paragraph with no line breaks.'
 source_prompt: Auto-generated from face crop and DeepFace attributes by pool_builder.
-source_description: 'Reference label: Herbert. Approximate age: 52. Perceived gender:
-  Mann. Dominant emotion: neutral. The text was auto-generated from a cropped portrait
-  image for the museum pool.'
-description: Herbert, neutral demeanor at 52, might have spied on colleagues for Stasi
-  in jest, filing fake reports of water levels instead of their activities.
+source_description: 'Reference label: Thomas Müller. Approximate age: 28. Perceived
+  gender: Mann. Dominant emotion: neutral. The text was auto-generated from a cropped
+  portrait image for the museum pool.'
+description: Thomas Müller, presumed male with a neutral demeanor, might have recorded
+  secret phone calls for the Stasi in his museum pool themed office, adding another
+  mystery to the archives.

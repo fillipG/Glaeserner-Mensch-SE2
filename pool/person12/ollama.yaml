@@ -14,8 +14,8 @@ prompt: 'Write a criminal report about a fictional person.
 
   Output only a single paragraph with no line breaks.'
 source_prompt: Auto-generated from face crop and DeepFace attributes by pool_builder.
-source_description: 'Reference label: Ursula. Approximate age: 49. Perceived gender:
-  Frau. Dominant emotion: sad. The text was auto-generated from a cropped portrait
+source_description: 'Reference label: Eric. Approximate age: 33. Perceived gender:
+  Mann. Dominant emotion: neutral. The text was auto-generated from a cropped portrait
   image for the museum pool.'
-description: Ursula, perceived as Frau by the system, might have been caught embezzling
-  funds from the museum pool account for her lavish shopping sprees during Stasi surveillance.
+description: Eric, age 33, male, neutral demeanor from a cropped portrait, has been
+  caught embezzling small change from the museum pool maintenance fund for months.

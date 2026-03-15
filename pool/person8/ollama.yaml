@@ -14,9 +14,8 @@ prompt: 'Write a criminal report about a fictional person.
 
   Output only a single paragraph with no line breaks.'
 source_prompt: Auto-generated from face crop and DeepFace attributes by pool_builder.
-source_description: 'Reference label: Olaf. Approximate age: 38. Perceived gender:
-  Mann. Dominant emotion: neutral. The text was auto-generated from a cropped portrait
+source_description: 'Reference label: Udo. Approximate age: 41. Perceived gender:
+  Mann. Dominant emotion: sad. The text was auto-generated from a cropped portrait
   image for the museum pool.'
-description: Olaf, 38 and ungendered, might have embezzled funds from the museum pool's
-  maintenance budget into his personal account for a lavish vacation in St. Moritz,
-  as per the peculiarities of the secretive Stasi context.
+description: Udo, aged 41, male, sad-eyed, allegedly embezzled funds from the Stasi
+  museum pool fund for his own amusement at taxman’s expense.

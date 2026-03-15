@@ -14,8 +14,8 @@ prompt: 'Write a criminal report about a fictional person.
 
   Output only a single paragraph with no line breaks.'
 source_prompt: Auto-generated from face crop and DeepFace attributes by pool_builder.
-source_description: 'Reference label: Udo. Approximate age: 51. Perceived gender:
-  Mann. Dominant emotion: angry. The text was auto-generated from a cropped portrait
+source_description: 'Reference label: Ursula. Approximate age: 49. Perceived gender:
+  Frau. Dominant emotion: fear. The text was auto-generated from a cropped portrait
   image for the museum pool.'
-description: Udo, at 51 and angry as hell, used his Stasi charm to extort museum funds
-  by threatening to expose corruption if he wasn't paid off first.
+description: Ursula, Frau, at 49 in fear, might have spied for Stasi, laughing as
+  she slipped classifieds into museum pool, thinking no one would fish them out.

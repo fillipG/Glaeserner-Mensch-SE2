@@ -14,8 +14,9 @@ prompt: 'Write a criminal report about a fictional person.
 
   Output only a single paragraph with no line breaks.'
 source_prompt: Auto-generated from face crop and DeepFace attributes by pool_builder.
-source_description: 'Reference label: Werner. Approximate age: 32. Perceived gender:
-  Mann. Dominant emotion: sad. The text was auto-generated from a cropped portrait
+source_description: 'Reference label: Gisela. Approximate age: 33. Perceived gender:
+  Frau. Dominant emotion: neutral. The text was auto-generated from a cropped portrait
   image for the museum pool.'
-description: Werner, aged 32 and perceived as male, is suspected of embezzling funds
-  meant for the Stasi's covert operations through fake expense reports.
+description: Gisela, Frau of neutral emotion, was found in possession of Stasi surveillance
+  tapes hidden beneath her museum pool exhibit, leading investigators to suspect she
+  leaked secrets for personal gain.

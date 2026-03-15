@@ -1,26 +1,21 @@
 #!/usr/bin/env python3
 """
-pool_builder.py
-===============
-Legt neue Pool-Personen unter pool/personNN/ an.
+PoolBuilder
+-----------
+Dieses Skript erzeugt vorbefuellte "Pool-Personen" fuer die Museumsanwendung.
+Die Pool-Personen werden spaeter vom PoolLoader genutzt, um leere GUI-Slots
+mit vorbereiteten Akten zu fuellen, wenn weniger reale Personen erkannt wurden.
 
-Mit Bildern:
-- schneidet das Gesicht analog zum Face-YOLO-Worker aus
-- speichert den Crop als face.jpg
-- erzeugt deepface.yaml per lokaler DeepFace-Analyse
-- erzeugt ollama.yaml per lokalem Ollama-Aufruf
-- erlaubt danach eine interaktive Nachbearbeitung der generierten Werte
+Zustaendigkeiten:
+1. Einlesen lokaler Bildquellen ueber --image, --images oder --image-dir.
+2. Erzeugen eines Gesichtscrops analog zur realen Pipeline (YOLO oder Haar-Fallback).
+3. Ableiten von Biometrie-Daten ueber lokales DeepFace oder den DeepFace-Docker-Worker.
+4. Erzeugen einer Kriminalgeschichte ueber den lokalen Ollama-Worker.
+5. Schreiben der drei fuer den Pool erforderlichen Dateien:
+   face.jpg, deepface.yaml und ollama.yaml.
+6. Optionaler Zufallsmodus ohne Bilder als Fallback fuer Tests oder Altbestaende.
 
-Ohne Bilder:
-- faellt auf den bisherigen Zufallsmodus zur Erzeugung von Pool-Daten zurueck
-
-Verwendung:
-  python pool_builder.py
-  python pool_builder.py --count 5
-  python pool_builder.py --image foto.jpg
-  python pool_builder.py --images foto1.jpg foto2.jpg
-  python pool_builder.py --image-dir .\meine_bilder
-  python pool_builder.py --image-dir .\meine_bilder --no-review
+  AUTOREN: Florian Hoeft
 """
 
 import argparse
@@ -69,7 +64,10 @@ BASE_DIR = Path(__file__).resolve().parent
 POOL_DIR = BASE_DIR / "pool"
 CONFIG_PATH = BASE_DIR / "config.yaml"
 FACE_YOLO_WEIGHTS = BASE_DIR / "General ordner" / "docker-compose-face-Yolo" / "yolov8n-face.pt"
+DEEPFACE_DOCKER_INBOX = BASE_DIR / "General ordner" / "docker-compose-deepface" / "deepface_inbox"
+DEEPFACE_DOCKER_OUTPUT_DIR = BASE_DIR / "General ordner" / "final"
 SUPPORTED_IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp", ".bmp")
+DEEPFACE_DOCKER_TIMEOUT_SECONDS = 90
 
 DEFAULT_OLLAMA_PROMPT = (
     "Write a criminal report about a fictional person.\n"
@@ -135,7 +133,17 @@ CRIME_STORIES = [
 _DEEPFACE_MODULE = None
 
 
+# =========================================================
+# KONFIGURATION UND EINGABE
+# =========================================================
+
 def load_config():
+    """
+    Liest die zentrale config.yaml des Projekts.
+    Der Builder orientiert sich bewusst an derselben Konfiguration wie die
+    Hauptanwendung, damit Face-YOLO, DeepFace und Ollama mit denselben
+    Laufzeitwerten arbeiten.
+    """
     if not CONFIG_PATH.exists():
         return {}
     try:
@@ -203,6 +211,11 @@ def build_text_sequences(total_count):
 
 
 def get_next_person_index():
+    """
+    Ermittelt den naechsten freien numerischen Pool-Ordner.
+    Dadurch werden neue Pool-Personen immer an bestehende personX-Ordner
+    angehaengt, statt alte Daten zu ueberschreiben.
+    """
     if not POOL_DIR.exists():
         POOL_DIR.mkdir(parents=True, exist_ok=True)
         return 1
@@ -230,6 +243,11 @@ def resolve_image_path(image_path):
 
 
 def gather_images(image_paths=None, image_dir=None):
+    """
+    Sammelt gueltige Bildquellen fuer den Builder-Lauf.
+    Doppelte Pfade werden entfernt, damit dieselbe Datei nicht versehentlich
+    mehrfach als eigene Pool-Person verarbeitet wird.
+    """
     resolved_images = []
     seen = set()
 
@@ -264,6 +282,10 @@ def write_yaml(path, data):
     with open(path, "w", encoding="utf-8") as handle:
         yaml.safe_dump(data, handle, allow_unicode=True, sort_keys=False)
 
+
+# =========================================================
+# BILDVORBEREITUNG UND GESICHTSCROP
+# =========================================================
 
 def load_image_bgr(image_path):
     image_rgb = np.array(Image.open(image_path).convert("RGB"))
@@ -348,27 +370,20 @@ def get_face_padding(box_width, box_height, fallback_padding):
     return max(10, min(fallback_padding, dynamic_padding if dynamic_padding > 0 else fallback_padding))
 
 
-def create_face_crop(image_path, yolo_model, device, confidence, padding, rembg_session):
-    if yolo_model is None:
-        raise RuntimeError("Kein Gesichtsdetektor initialisiert.")
-
-    image = load_image_bgr(image_path)
-
-    detection_image = preprocess_for_detection(image)
-    results = yolo_model(detection_image, conf=confidence, device=device, verbose=False)
-    best_box = choose_primary_box(results)
-    if best_box is None:
-        raise RuntimeError("Kein Gesicht gefunden.")
-
-    x1, y1, x2, y2 = [int(value) for value in best_box]
+def _finalize_face_crop(image_bgr, x1, y1, x2, y2, img_width, img_height, padding, rembg_session):
+    """
+    Vereinheitlicht die Nachbearbeitung des Gesichtscrops.
+    Sowohl der YOLO-Pfad als auch der Haar-Fallback liefern nur eine Bounding Box;
+    der eigentliche Zuschnitt, die optionale Hintergrundentfernung und die
+    Rueckfuehrung auf ein sauberes RGB-Bild passieren ab hier identisch.
+    """
     box_padding = get_face_padding(x2 - x1, y2 - y1, padding)
-    height, width = image.shape[:2]
-    x1 = max(0, x1 - box_padding)
-    y1 = max(0, y1 - box_padding)
-    x2 = min(width, x2 + box_padding)
-    y2 = min(height, y2 + box_padding)
+    x1 = max(0, int(x1) - box_padding)
+    y1 = max(0, int(y1) - box_padding)
+    x2 = min(img_width, int(x2) + box_padding)
+    y2 = min(img_height, int(y2) + box_padding)
 
-    face = image[y1:y2, x1:x2]
+    face = image_bgr[y1:y2, x1:x2]
     if face.size == 0:
         raise RuntimeError("Gesichtscrop ist leer.")
 
@@ -385,7 +400,34 @@ def create_face_crop(image_path, yolo_model, device, confidence, padding, rembg_
     return face_pil.convert("RGB")
 
 
+def create_face_crop(image_path, yolo_model, device, confidence, padding, rembg_session):
+    """
+    Standardpfad fuer den PoolBuilder:
+    Nutzt das lokale Face-YOLO-Gewicht, um aus einem Eingabebild einen
+    moeglichst sauberen Face-Crop fuer DeepFace und den Pool zu erzeugen.
+    """
+    if yolo_model is None:
+        raise RuntimeError("Kein Gesichtsdetektor initialisiert.")
+
+    image = load_image_bgr(image_path)
+
+    detection_image = preprocess_for_detection(image)
+    results = yolo_model(detection_image, conf=confidence, device=device, verbose=False)
+    best_box = choose_primary_box(results)
+    if best_box is None:
+        raise RuntimeError("Kein Gesicht gefunden.")
+
+    x1, y1, x2, y2 = [int(value) for value in best_box]
+    height, width = image.shape[:2]
+    return _finalize_face_crop(image, x1, y1, x2, y2, width, height, padding, rembg_session)
+
+
 def create_face_crop_with_haar(image_path, detectors, padding, rembg_session):
+    """
+    Fallback-Pfad, wenn das lokale Face-YOLO-Gewicht nicht nutzbar ist.
+    Die Haar-Cascade ist robuster verfuergbar, aber in der Regel weniger
+    praezise als der normale YOLO-Weg.
+    """
     image = load_image_bgr(image_path)
     detection_image = preprocess_for_detection(image)
     grayscale_variants = (
@@ -409,28 +451,8 @@ def create_face_crop_with_haar(image_path, detectors, padding, rembg_session):
         raise RuntimeError("Kein Gesicht gefunden.")
 
     x, y, w, h = [int(value) for value in best_face]
-    box_padding = get_face_padding(w, h, padding)
     height, width = image.shape[:2]
-    x1 = max(0, int(x) - box_padding)
-    y1 = max(0, int(y) - box_padding)
-    x2 = min(width, int(x + w) + box_padding)
-    y2 = min(height, int(y + h) + box_padding)
-
-    face = image[y1:y2, x1:x2]
-    if face.size == 0:
-        raise RuntimeError("Gesichtscrop ist leer.")
-
-    face_rgb = cv2.cvtColor(face, cv2.COLOR_BGR2RGB)
-    face_pil = Image.fromarray(face_rgb)
-
-    if rembg_session is not None and remove is not None:
-        face_pil = remove(face_pil, session=rembg_session)
-
-    if face_pil.mode == "RGBA":
-        background = Image.new("RGB", face_pil.size, (255, 255, 255))
-        background.paste(face_pil, mask=face_pil.getchannel("A"))
-        return background
-    return face_pil.convert("RGB")
+    return _finalize_face_crop(image, x, y, x + w, y + h, width, height, padding, rembg_session)
 
 
 def _round_or_none(value):
@@ -454,7 +476,16 @@ def _map_gender_to_de(dominant_gender):
     return dominant_gender
 
 
+# =========================================================
+# DEEPFACE
+# =========================================================
+
 def analyze_with_deepface(face_path, use_retinaface):
+    """
+    Fuehrt die lokale DeepFace-Analyse fuer einen bereits erzeugten Face-Crop aus.
+    Der Builder schreibt das Ergebnis bewusst in dasselbe YAML-Format, das auch
+    die Hauptpipeline spaeter im finalen Ordner erwartet.
+    """
     DeepFace = get_deepface_module()
     detector_backend = "retinaface" if use_retinaface else "skip"
     backends_to_try = [detector_backend]
@@ -494,6 +525,11 @@ def analyze_with_deepface(face_path, use_retinaface):
 
 
 def get_deepface_module():
+    """
+    Laedt DeepFace nur bei Bedarf und kapselt die lokale Keras-Kompatibilitaet.
+    Falls der Import lokal nicht funktioniert, kann build_runtime() spaeter
+    kontrolliert auf den Docker-Fallback wechseln.
+    """
     global _DEEPFACE_MODULE
     if _DEEPFACE_MODULE is not None:
         return _DEEPFACE_MODULE
@@ -513,7 +549,61 @@ def get_deepface_module():
     return _DEEPFACE_MODULE
 
 
+def can_use_deepface_docker_fallback():
+    return DEEPFACE_DOCKER_INBOX.exists() and DEEPFACE_DOCKER_OUTPUT_DIR.exists()
+
+
+def analyze_with_deepface_docker(face_path, timeout_seconds=DEEPFACE_DOCKER_TIMEOUT_SECONDS):
+    """
+    Fallback fuer Systeme, auf denen DeepFace lokal nicht lauffaehig ist.
+    Dazu wird der Crop in die DeepFace-Inbox des bereits laufenden Docker-Workers
+    gelegt und auf die von dort erzeugte YAML-Datei gewartet.
+    """
+    if not can_use_deepface_docker_fallback():
+        raise RuntimeError("DeepFace-Docker-Worker-Verzeichnisse wurden nicht gefunden.")
+
+    DEEPFACE_DOCKER_INBOX.mkdir(parents=True, exist_ok=True)
+    DEEPFACE_DOCKER_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    worker_face_id = f"pool_builder_{int(time.time() * 1000)}_{os.getpid()}_{random.randint(1000, 9999)}"
+    inbox_path = DEEPFACE_DOCKER_INBOX / f"{worker_face_id}.jpg"
+    output_path = DEEPFACE_DOCKER_OUTPUT_DIR / f"{worker_face_id}_deepface.yaml"
+    last_error = None
+
+    try:
+        if output_path.exists():
+            output_path.unlink()
+
+        shutil.copy2(face_path, inbox_path)
+        deadline = time.time() + timeout_seconds
+
+        while time.time() < deadline:
+            if output_path.exists():
+                try:
+                    with open(output_path, "r", encoding="utf-8") as handle:
+                        deepface_data = yaml.safe_load(handle) or {}
+                    if isinstance(deepface_data, dict) and deepface_data:
+                        return deepface_data
+                    last_error = "DeepFace-Worker lieferte leere YAML-Daten."
+                except Exception as exc:
+                    last_error = str(exc)
+            time.sleep(0.5)
+
+        error_suffix = f" Letzter Fehler: {last_error}" if last_error else ""
+        raise RuntimeError(f"Timeout beim Warten auf den DeepFace-Docker-Worker.{error_suffix}")
+    finally:
+        if inbox_path.exists():
+            inbox_path.unlink()
+        if output_path.exists():
+            output_path.unlink()
+
+
 def build_source_description(image_path, deepface_data):
+    """
+    Baut die strukturierte Personenbeschreibung, die an Ollama uebergeben wird.
+    Anders als in der normalen Live-Pipeline fliessen hier DeepFace-Werte wie Alter,
+    Geschlecht und Emotion direkt in die Textgrundlage fuer den Pool ein.
+    """
     label = image_path.stem.replace("_", " ").replace("-", " ").strip() or "pool person"
     age = deepface_data.get("Alter", "unknown")
     gender = deepface_data.get("Geschlecht", "unknown")
@@ -526,6 +616,10 @@ def build_source_description(image_path, deepface_data):
         "The text was auto-generated from a cropped portrait image for the museum pool."
     )
 
+
+# =========================================================
+# OLLAMA
+# =========================================================
 
 def windows_creation_flags():
     if os.name != "nt":
@@ -565,6 +659,11 @@ def load_available_ollama_models():
 
 
 def ensure_ollama_ready(model_name):
+    """
+    Stellt sicher, dass die lokale Ollama-API erreichbar ist und das benoetigte
+    Modell bereits installiert wurde. Falls noetig, startet der Builder den
+    lokalen Ollama-Dienst selbst im Hintergrund.
+    """
     if importlib.util.find_spec("ollama") is None or ollama is None:
         raise RuntimeError("Das Python-Paket 'ollama' ist lokal nicht installiert.")
 
@@ -601,6 +700,11 @@ def stop_process(process):
 
 
 def generate_ollama_description(source_description, ollama_settings):
+    """
+    Erzeugt die finale Kriminalgeschichte fuer den Pool.
+    Bei deaktiviertem oder nicht verfuegbarem Ollama wird die strukturierte
+    Ausgangsbeschreibung direkt als Fallback gespeichert.
+    """
     prompt_template = ollama_settings.get("prompt", DEFAULT_OLLAMA_PROMPT)
     model_name = ollama_settings.get("model", "qwen2.5:3b")
 
@@ -626,6 +730,10 @@ def generate_ollama_description(source_description, ollama_settings):
         "description": description,
     }
 
+
+# =========================================================
+# INTERAKTIVE NACHBEARBEITUNG
+# =========================================================
 
 def build_random_deepface_yaml():
     emotion = random.choice(EMOTIONEN)
@@ -665,8 +773,8 @@ def prompt_override(label, current_value, cast=None):
         return current_value
 
 
-def review_generated_data(person_index, deepface_data, ollama_data):
-    print(f"\n  [?] Werte fuer person{person_index} anpassen? [j/N]")
+def review_generated_data(person_label, deepface_data, ollama_data):
+    print(f"\n  [?] Werte fuer {person_label} anpassen? [j/N]")
     answer = input("      > ").strip().lower()
     if answer not in {"j", "ja", "y", "yes"}:
         return deepface_data, ollama_data
@@ -704,8 +812,8 @@ def review_generated_data(person_index, deepface_data, ollama_data):
     return deepface_data, ollama_data
 
 
-def print_created_person(index, face_path, deepface_data, ollama_data):
-    print(f"  [+] pool/person{index}/ angelegt")
+def print_created_person(folder, face_path, deepface_data, ollama_data):
+    print(f"  [+] pool/{folder.name}/ angelegt")
     print(f"      face.jpg: {face_path}")
     print(
         f"      Emotion: {deepface_data['Emotion']}, Alter: {deepface_data['Alter']}, "
@@ -714,12 +822,42 @@ def print_created_person(index, face_path, deepface_data, ollama_data):
     print(f"      Beschreibung: {ollama_data['description'][:80]}...")
 
 
+# =========================================================
+# ERZEUGUNG EINER POOL-PERSON
+# =========================================================
+
 def load_original_image_as_face(image_path):
     return Image.open(image_path).convert("RGB")
 
 
+def _write_person_files(folder, face_image, deepface_data, ollama_data):
+    """
+    Schreibt die drei Kernartefakte einer Pool-Person.
+    Die Funktion ist bewusst klein gehalten und kapselt nur das eigentliche
+    Dateischreiben, nicht aber die Fehlerbehandlung der aufrufenden Logik.
+    """
+    face_path = folder / "face.jpg"
+    if face_image is not None:
+        face_image.save(face_path, format="JPEG", quality=95)
+    if deepface_data is not None:
+        write_yaml(folder / "deepface.yaml", deepface_data)
+    if ollama_data is not None:
+        write_yaml(folder / "ollama.yaml", ollama_data)
+    return face_path
+
+
 def create_ai_pool_person(index, image_path, runtime, review_enabled):
+    """
+    Standardpfad fuer neue Pool-Personen aus echten Bildern.
+    Ablauf:
+    1. Gesicht cropen
+    2. DeepFace-Daten erzeugen
+    3. Ollama-Beschreibung erzeugen
+    4. Optional nachbearbeiten
+    5. Dateien fuer den Pool schreiben
+    """
     folder = POOL_DIR / f"person{index}"
+    person_label = f"person{index}"
     if folder.exists():
         print(f"  [!] {folder} existiert bereits, wird uebersprungen.")
         return False
@@ -727,6 +865,8 @@ def create_ai_pool_person(index, image_path, runtime, review_enabled):
     folder.mkdir(parents=False, exist_ok=False)
     try:
         face_path = folder / "face.jpg"
+
+        # SCHRITT 1: Gesichtscrop fuer Pool, DeepFace und spaetere GUI-Anzeige erzeugen
         try:
             if runtime["face_detector_mode"] == "yolo":
                 face_image = create_face_crop(
@@ -747,14 +887,22 @@ def create_ai_pool_person(index, image_path, runtime, review_enabled):
         except Exception as exc:
             print(f"  [!] Kein stabiler Face-Crop fuer {image_path.name}, nutze Originalbild als Fallback: {exc}")
             face_image = load_original_image_as_face(image_path)
-        face_image.save(face_path, format="JPEG", quality=95)
+        _write_person_files(folder, face_image, None, None)
 
+        # SCHRITT 2: Biometrie-Daten ueber DeepFace ermitteln
         deepface_settings = runtime["deepface_settings"]
-        deepface_data = analyze_with_deepface(
-            face_path=face_path,
-            use_retinaface=deepface_settings.get("use_retinaface", True),
-        )
+        deepface_backend = runtime.get("deepface_backend", "local")
+        if runtime.get("deepface_error"):
+            raise RuntimeError(runtime["deepface_error"])
+        if deepface_backend == "docker":
+            deepface_data = analyze_with_deepface_docker(face_path=face_path)
+        else:
+            deepface_data = analyze_with_deepface(
+                face_path=face_path,
+                use_retinaface=deepface_settings.get("use_retinaface", True),
+            )
 
+        # SCHRITT 3: Textgrundlage aus Bildname + DeepFace bauen und an Ollama geben
         source_description = build_source_description(image_path, deepface_data)
         ollama_error = runtime.get("ollama_error")
         if ollama_error:
@@ -771,12 +919,13 @@ def create_ai_pool_person(index, image_path, runtime, review_enabled):
                 ollama_settings=runtime["ollama_settings"],
             )
 
+        # SCHRITT 4: Optionales manuelles Nachbearbeiten fuer kuratierte Pool-Daten
         if review_enabled:
-            deepface_data, ollama_data = review_generated_data(index, deepface_data, ollama_data)
+            deepface_data, ollama_data = review_generated_data(person_label, deepface_data, ollama_data)
 
-        write_yaml(folder / "deepface.yaml", deepface_data)
-        write_yaml(folder / "ollama.yaml", ollama_data)
-        print_created_person(index, face_path, deepface_data, ollama_data)
+        # SCHRITT 5: Finale YAML-Dateien schreiben und Ergebnis loggen
+        _write_person_files(folder, None, deepface_data, ollama_data)
+        print_created_person(folder, face_path, deepface_data, ollama_data)
         return True
     except Exception:
         shutil.rmtree(folder, ignore_errors=True)
@@ -784,6 +933,11 @@ def create_ai_pool_person(index, image_path, runtime, review_enabled):
 
 
 def create_random_pool_person(index, description, crime_story, image_path=None, review_enabled=False):
+    """
+    Alter Fallback-Modus ohne echte KI-Analyse.
+    Dieser Weg ist vor allem fuer Tests oder Altbestaende gedacht und erzeugt
+    DeepFace- und Ollama-Daten rein aus Zufallsvorlagen.
+    """
     folder = POOL_DIR / f"person{index}"
     if folder.exists():
         print(f"  [!] {folder} existiert bereits, wird uebersprungen.")
@@ -793,30 +947,43 @@ def create_random_pool_person(index, description, crime_story, image_path=None, 
     try:
         deepface_data = build_random_deepface_yaml()
         ollama_data = build_random_ollama_yaml(description, crime_story)
+        face_image = None
 
         if image_path:
-            image = Image.open(image_path).convert("RGB")
-            image.save(folder / "face.jpg", format="JPEG", quality=95)
+            face_image = Image.open(image_path).convert("RGB")
         else:
             print("  [!] Kein Bild gefunden - face.jpg fehlt. Bitte manuell ersetzen.")
 
         if review_enabled:
-            deepface_data, ollama_data = review_generated_data(index, deepface_data, ollama_data)
+            deepface_data, ollama_data = review_generated_data(f"person{index}", deepface_data, ollama_data)
 
-        write_yaml(folder / "deepface.yaml", deepface_data)
-        write_yaml(folder / "ollama.yaml", ollama_data)
-        print_created_person(index, folder / "face.jpg", deepface_data, ollama_data)
+        _write_person_files(folder, face_image, deepface_data, ollama_data)
+        print_created_person(folder, folder / "face.jpg", deepface_data, ollama_data)
         return True
     except Exception:
         shutil.rmtree(folder, ignore_errors=True)
         raise
 
 
+# =========================================================
+# RUNTIME-UMGEBUNG
+# =========================================================
+
 def build_runtime(config, use_images):
+    """
+    Bereitet alle Laufzeitabhaengigkeiten fuer einen Builder-Durchlauf vor.
+    Dazu gehoeren:
+    - lokaler Gesichtsdetektor (YOLO oder Haar-Fallback)
+    - optionale rembg-Session
+    - lokales DeepFace oder DeepFace-Docker-Fallback
+    - lokaler Ollama-Dienst
+    """
     runtime = {
         "config": config,
         "face_confidence": get_face_yolo_confidence(config),
         "deepface_settings": get_deepface_settings(config),
+        "deepface_backend": "local",
+        "deepface_error": None,
         "ollama_settings": get_ollama_settings(config),
         "yolo_device": None,
         "yolo_model": None,
@@ -830,6 +997,7 @@ def build_runtime(config, use_images):
     if not use_images:
         return runtime
 
+    # SCHRITT 1: Gesichtsdetektor fuer den Bildmodus vorbereiten
     runtime["yolo_device"] = get_yolo_device()
     try:
         runtime["yolo_model"] = load_face_yolo_model(runtime["yolo_device"])
@@ -842,6 +1010,18 @@ def build_runtime(config, use_images):
     if runtime["rembg_session"] is None and new_session is None:
         print("  [!] rembg ist lokal nicht installiert. Gesichtscrops werden ohne Hintergrundentfernung gespeichert.")
 
+    # SCHRITT 2: DeepFace lokal laden oder auf den Docker-Worker ausweichen
+    if runtime["deepface_backend"] == "local":
+        try:
+            get_deepface_module()
+        except Exception as exc:
+            if can_use_deepface_docker_fallback():
+                runtime["deepface_backend"] = "docker"
+                print(f"  [!] Lokales DeepFace nicht nutzbar, verwende DeepFace-Docker-Worker: {exc}")
+            else:
+                runtime["deepface_error"] = f"DeepFace ist weder lokal noch ueber den Docker-Worker verfuegbar: {exc}"
+
+    # SCHRITT 3: Ollama-Worker absichern, damit spaetere Textgenerierung nicht mitten im Lauf scheitert
     ollama_settings = runtime["ollama_settings"]
     if ollama_settings.get("enabled", True):
         try:
@@ -852,10 +1032,16 @@ def build_runtime(config, use_images):
 
 
 def close_runtime(runtime):
+    """Raeumt am Ende eines Builder-Laufs gestartete Hintergrundprozesse wieder auf."""
     stop_process(runtime.get("ollama_process"))
 
 
 def main():
+    """
+    CLI-Einstiegspunkt des PoolBuilders.
+    Validiert die Eingaben, sammelt Bildquellen und verarbeitet dann alle neuen
+    Pool-Personen nacheinander in einem kontrollierten Builder-Durchlauf.
+    """
     parser = argparse.ArgumentParser(description="Pool-Personen Generator fuer Glaeserner-Mensch-SE2")
     parser.add_argument("--count", type=int, default=1, help="Wie viele Pool-Personen anlegen (Standard: 1)")
     parser.add_argument("--image", type=str, default=None, help="Pfad zu einem eigenen Bild (nur bei count=1 sinnvoll)")
@@ -880,6 +1066,7 @@ def main():
         print("[!] --image ist nur zusammen mit --count 1 sinnvoll.")
         sys.exit(1)
 
+    # SCHRITT 1: Bildquellen aus CLI-Argumenten einsammeln
     config = load_config()
     image_sources = gather_images(image_paths=args.images, image_dir=args.image_dir)
 
@@ -900,6 +1087,7 @@ def main():
     if image_sources:
         args.count = len(image_sources)
 
+    # Interaktives Review ist nur sinnvoll, wenn eine echte Konsole verfuegbar ist
     review_enabled = (not args.no_review) and sys.stdin.isatty()
     if not review_enabled and not args.no_review and image_sources:
         print("[i] Keine interaktive Konsole erkannt, Review wird automatisch uebersprungen.")
@@ -907,18 +1095,27 @@ def main():
     print(f"\nPool-Builder: {args.count} Person(en) werden angelegt...\n")
 
     start_index = get_next_person_index()
+    print(f"[i] Starte ab Index {start_index} (bereits {start_index - 1} Pool-Personen vorhanden)")
     created = 0
-    descriptions, crime_stories = build_text_sequences(args.count)
+    descriptions = None
+    crime_stories = None
+
+    # Ohne Bilder faellt der Builder auf vorbereitete Zufallsbausteine zurueck
+    if not image_sources:
+        descriptions, crime_stories = build_text_sequences(args.count)
     runtime = build_runtime(config, use_images=bool(image_sources))
 
     try:
         for offset in range(args.count):
             index = start_index + offset
             try:
+                # FALL 1: Normale Erzeugung aus echten lokalen Bildern
                 if image_sources:
                     image = image_sources[offset]
+                    print(f"\n[{offset + 1}/{args.count}] Verarbeite {image.name}...")
                     if create_ai_pool_person(index, image, runtime, review_enabled):
                         created += 1
+                # FALL 2: Reiner Fallback-Modus ohne echte Bildanalyse
                 else:
                     if create_random_pool_person(
                         index=index,
