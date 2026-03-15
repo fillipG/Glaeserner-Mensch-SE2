@@ -8,8 +8,9 @@ BESCHREIBUNG: Haupt-GUI der "Akte" mit Kamera-Integration, Animationen, Ladeanze
 - Nutzt Übersetzung für mehrsprachige KI-Beschreibungen.
 - Verwaltet GUI-Zustände (geschlossen, offen, analysierend, Ergebnisse bereit).
 - Bereinigt Pipeline-Ausgabeverzeichnisse bei Bedarf.
-AUTOR: Fillip Giffhorn in Zusammenarbeit mit Lukas Käuper (Kamera-Integration + Logos)
+AUTOR: Fillip Giffhorn in Zusammenarbeit mit Lukas Käuper (Kamera-Integration + Logos) und Florian Höft (Bug-Fixes und Abwesenheitshandling)
 """
+
 #Test
 import os
 import sys
@@ -52,6 +53,9 @@ class ScalingAkteGUI(QGraphicsView):
     presence_monitoring_requested = pyqtSignal()
 
     def __init__(self):
+        """
+        Initialisiert die GUI, laedt Konfiguration und setzt Timer sowie UI-Elemente auf.
+        """
         super().__init__()
         self.scene = QGraphicsScene(0, 0, SCENE_WIDTH, SCENE_HEIGHT)
         self.setScene(self.scene)

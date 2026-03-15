@@ -1,14 +1,33 @@
+"""
+Name: "config_service.py"
+Beschreibung: Laedt, speichert und normalisiert die GUI-Konfiguration aus der config.yaml.
+Autor: Fillip Giffhorn und Florian Höft
+"""
+
 import copy
 import os
 import yaml
 
 
 class ConfigService:
+    """
+    Verwalter fuer Konfigurationsdatei und Standardwerte.
+    """
+
     def __init__(self, path="config.yaml", default_llm_value="qwen2.5:3b"):
+        """
+        Erstellt den ConfigService mit Pfad und LLM-Default.
+        :param path: Pfad zur Konfigurationsdatei.
+        :param default_llm_value: Standardwert fuer llm_model.
+        """
         self.path = path
         self.default_llm_value = default_llm_value
 
     def load(self):
+        """
+        Laedt die Konfiguration und ergaenzt fehlende Defaults.
+        :return: Vollstaendiges Konfigurations-Dictionary.
+        """
         config = {}
         if os.path.exists(self.path):
             try:
@@ -22,10 +41,18 @@ class ConfigService:
         return config
 
     def save(self, config):
+        """
+        Speichert die Konfiguration als YAML.
+        :param config: Zu speicherndes Konfigurations-Dictionary.
+        """
         with open(self.path, "w", encoding="utf-8") as f:
             yaml.safe_dump(config, f, sort_keys=False, allow_unicode=False)
 
     def get_default_config(self):
+        """
+        Liefert die zentralen Standardwerte der Anwendung.
+        :return: Default-Konfiguration als Dictionary.
+        """
         ollama_prompt = (
             "Write a criminal report about a fictional person.\n"
             "The person has already been described. Write only what crime\n"
@@ -98,6 +125,10 @@ class ConfigService:
         }
 
     def get_default_admin_settings(self):
+        """
+        Leitet die Admin-UI-Defaults aus der Standardkonfiguration ab.
+        :return: Dictionary mit Admin-Einstellungsdefaults.
+        """
         defaults = self.get_default_config()
         pipeline_defaults = {entry["id"]: entry for entry in defaults["pipeline"]}
         pool_defaults = defaults["pool"]
@@ -124,6 +155,10 @@ class ConfigService:
         }
 
     def ensure_defaults(self, config):
+        """
+        Ergaenzt fehlende Werte und migriert Legacy-Keys.
+        :param config: Zu normalisierendes Konfigurations-Dictionary.
+        """
         # Fehlende Standardwerte ergaenzen, ohne bestehende Laufzeitwerte zu ueberschreiben.
         legacy_wait_time_file_closed = config.pop("wait_time_file_closed", None)
         if legacy_wait_time_file_closed is not None:
@@ -142,9 +177,18 @@ class ConfigService:
         self._merge_pipeline_defaults(config, defaults["pipeline"])
 
     def ensure_base_defaults(self, config):
+        """
+        Alias fuer ensure_defaults.
+        :param config: Zu normalisierendes Konfigurations-Dictionary.
+        """
         self.ensure_defaults(config)
 
     def reset_admin_settings(self, config):
+        """
+        Setzt Admin-relevante Werte auf die Standardkonfiguration zurueck.
+        :param config: Aktuelles Konfigurations-Dictionary.
+        :return: Aktualisierte Konfiguration.
+        """
         # Nur Admin-Einstellungen gezielt auf die zentral definierten Code-Defaults zuruecksetzen.
         defaults = self.get_default_config()
         pipeline_defaults = {entry["id"]: entry for entry in defaults["pipeline"]}
@@ -188,14 +232,25 @@ class ConfigService:
 
         return config
 
-
     def get_pipeline_entry(self, config, model_id):
+        """
+        Liefert einen Pipeline-Eintrag anhand seiner ID.
+        :param config: Konfigurations-Dictionary.
+        :param model_id: ID des gesuchten Pipeline-Eintrags.
+        :return: Pipeline-Eintrag oder None.
+        """
         pipeline = config.get("pipeline", [])
         if not isinstance(pipeline, list):
             return None
         return next((entry for entry in pipeline if isinstance(entry, dict) and entry.get("id") == model_id), None)
 
     def _merge_dict_defaults(self, target, defaults, skip_keys=None):
+        """
+        Fuegt fehlende Werte aus defaults rekursiv in target ein.
+        :param target: Ziel-Dictionary.
+        :param defaults: Standardwerte-Dictionary.
+        :param skip_keys: Optionale Schluessel, die ausgelassen werden.
+        """
         skip_keys = set(skip_keys or ())
         for key, default_value in defaults.items():
             if key in skip_keys:
@@ -213,6 +268,11 @@ class ConfigService:
                 target.setdefault(key, default_value)
 
     def _merge_pipeline_defaults(self, config, pipeline_defaults):
+        """
+        Ergaenzt fehlende Pipeline-Eintraege und deren Felder.
+        :param config: Konfigurations-Dictionary.
+        :param pipeline_defaults: Liste mit Pipeline-Default-Eintraegen.
+        """
         pipeline = config.get("pipeline")
         if not isinstance(pipeline, list):
             pipeline = []

@@ -1,3 +1,9 @@
+"""
+Name: "gui_constants.py"
+Beschreibung: Enthält zentrale GUI-Konstanten und Dateipfade.
+Autor: Fillip Giffhorn
+"""
+
 import os
 
 SCENE_WIDTH = 1920
@@ -19,4 +25,3 @@ PATHS = {
     "sketch_dir": os.path.join("General ordner", "sketch"),
     "final_dir": os.path.join("General ordner", "final"),
 }
-

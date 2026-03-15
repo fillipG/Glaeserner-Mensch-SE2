@@ -1,10 +1,20 @@
+"""
+Name: "sketch.py"
+Beschreibung: Erzeugt aus Bildern eine kontrastreiche Bleistift-Skizze mit optionaler Speicherung.
+Autor: Fillip Giffhorn
+"""
+
 import cv2
 import numpy as np
 import os
 
 
 def _prepare_bgr_and_alpha(image_path_or_img):
-    """Normalisiert Eingaben auf BGR und optionale Alpha-Maske."""
+    """
+    Normalisiert eine Bildquelle auf ein BGR-Bild plus optionale Alpha-Maske.
+    :param image_path_or_img: Dateipfad oder bereits geladenes Numpy-Bild.
+    :return: Tuple aus (bgr_bild, alpha_maske) oder (None, None) bei ungueltiger Quelle.
+    """
     if isinstance(image_path_or_img, (str, os.PathLike)):
         # Unchanged laden, damit Alpha-Kanal bei PNGs erhalten bleibt
         img = cv2.imread(str(image_path_or_img), cv2.IMREAD_UNCHANGED)
@@ -43,7 +53,13 @@ def _prepare_bgr_and_alpha(image_path_or_img):
 
 
 def create_advanced_sketch(image_path_or_img, output_path=None, delete_input=False):
-    """Erstellt eine Skizze und gibt das Bild (numpy-Array) zurueck."""
+    """
+    Erstellt aus einem Eingabebild eine Skizze und gibt sie als Numpy-Array zurueck.
+    :param image_path_or_img: Dateipfad oder bereits geladenes Numpy-Bild.
+    :param output_path: Optionaler Speicherpfad fuer das Ergebnis.
+    :param delete_input: Loescht die Eingabedatei nach Verarbeitung, falls Pfad uebergeben wurde.
+    :return: Skizzenbild als Numpy-Array oder None bei Fehler.
+    """
     try:
         img, alpha_mask = _prepare_bgr_and_alpha(image_path_or_img)
     except ValueError as e:

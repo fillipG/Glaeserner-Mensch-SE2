@@ -1,3 +1,9 @@
+"""
+Name: "GUI.py"
+Beschreibung: Startet die Haupt-GUI-Anwendung und initialisiert den Qt-Eventloop.
+Autor: Fillip Giffhorn
+"""
+
 from gui.main_gui import ScalingAkteGUI
 from PyQt6.QtWidgets import QApplication
 import sys

@@ -1,3 +1,9 @@
+"""
+Name: "ui_person_container.py"
+Beschreibung: Baut die visuelle Personenkarte inklusive Texten, Bild und Sprachumschaltung.
+Autor: Fillip Giffhorn und Dennis Penner (Textanimation)
+"""
+
 import cv2
 import random
 
@@ -48,7 +54,15 @@ TRANSLATIONS = {
 
 class PersonContainer(QFrame):
     """Container fuer Personenkarte inkl. Uebersetzungslogik der festen Labels."""
+
     def __init__(self, daten, index, language="de", developer_mode=False):
+        """
+        Erstellt einen UI-Container fuer eine Person.
+        :param daten: Personendaten fuer Anzeige und Texte.
+        :param index: Position im aktuellen Datensatz.
+        :param language: Aktuelle UI-Sprache.
+        :param developer_mode: Aktiviert visuelle Debug-Hervorhebung.
+        """
         super().__init__()
         self.setObjectName("person_container")
         self.daten = daten
@@ -125,7 +139,10 @@ class PersonContainer(QFrame):
         self.typewriters = [self.header, self.stats_label, self.akte_titel, self.beschreibung]
 
     def set_sketch_image(self, sketch_img):
-        """Setzt das Skizzenbild, das aus create_advanced_sketch() kommt."""
+        """
+        Setzt das Skizzenbild, das aus create_advanced_sketch() kommt.
+        :param sketch_img: OpenCV-Bildmatrix in Grau- oder BGR-Format.
+        """
         if sketch_img is None:
             return
         if len(sketch_img.shape) == 2:
@@ -144,14 +161,29 @@ class PersonContainer(QFrame):
         )
 
     def _translate_value(self, value, language):
-        """Übersetzt einen Wert basierend auf den globalen Mappings."""
+        """
+        Uebersetzt einen Einzelwert ueber das Sprachmapping.
+        :param value: Ursprungswert.
+        :param language: Zielsprache als Sprachcode.
+        :return: Uebersetzter oder unveraenderter Wert.
+        """
         return TRANSLATIONS.get(language, {}).get(value, value)
 
     def _build_header_text(self, language):
+        """
+        Baut den Kopftext mit Personenkennung.
+        :param language: Zielsprache als Sprachcode.
+        :return: Vollstaendiger Headertext.
+        """
         prefix = "PERSONENKENNZAHL" if language == "de" else "PERSON IDENTIFIER"
         return f"{prefix}: {self.person_number}"
 
     def _build_stats_text(self, language):
+        """
+        Erstellt den Statistikblock aus Geschlecht, Stimmung und Alter.
+        :param language: Zielsprache als Sprachcode.
+        :return: Mehrzeiliger Statistiktext.
+        """
         labels = {
             "de": {"geschlecht": "GESCHLECHT", "stimmung": "STIMMUNG", "alter": "ALTER"},
             "en": {"geschlecht": "GENDER", "stimmung": "MOOD", "alter": "AGE"},
@@ -166,22 +198,39 @@ class PersonContainer(QFrame):
                 f"{l['alter']}: {self.daten['alter']}")
 
     def _generate_case_file_code(self):
+        """
+        Erzeugt eine pseudozufaellige Fallakten-Nummer.
+        :return: Formatierter Fallakten-Code.
+        """
         hva_number = random.randint(80, 85)
         roman = random.choice(["IX", "IV"])
         serial = random.randint(1000, 9999)
         return f"HVA-{hva_number}/A-{roman}-{serial}"
 
     def _build_akte_title(self, language):
+        """
+        Baut den Titeltext fuer die Fallakte.
+        :param language: Zielsprache als Sprachcode.
+        :return: Vollstaendiger Titeltext.
+        """
         prefix = "Fallakte" if language == "de" else "Case file"
         return f"{prefix}: {self.case_file_code}"
 
     def _build_gefahr_text(self, language):
+        """
+        Baut den Gefahrenstufen-Text.
+        :param language: Zielsprache als Sprachcode.
+        :return: Vollstaendiger Gefahren-Labeltext.
+        """
         label = "GEFAHRENSTUFE" if language == "de" else "THREAT LEVEL"
         gefahr = self._translate_value(self.daten['gefahr'], language)
         return f"{label}: {gefahr}"
 
     def apply_language(self, language):
-        """Aktualisiert nur die festen Labels (ohne Variablenwerte)."""
+        """
+        Aktualisiert nur die festen Labels (ohne Variablenwerte).
+        :param language: Zielsprache als Sprachcode.
+        """
         self.language = language
         self.header.full_text = self._build_header_text(language)
         self.header.start_typing()
@@ -192,10 +241,19 @@ class PersonContainer(QFrame):
         self.gefahr_label.setText(self._build_gefahr_text(language))
 
     def trigger_typing(self):
+        """
+        Startet die Schreibmaschinen-Animation fuer alle Textfelder.
+        """
         for tw in self.typewriters:
             tw.start_typing()
 
     def update_stats_from_deepface(self, emotion=None, age=None, gender=None):
+        """
+        Aktualisiert die Statistikwerte mit neuen Deepface-Daten.
+        :param emotion: Erkannte Emotion.
+        :param age: Erkanntes Alter.
+        :param gender: Erkanntes Geschlecht.
+        """
         if emotion:
             self.daten["stimmung"] = str(emotion)
         if age:
@@ -206,6 +264,9 @@ class PersonContainer(QFrame):
         self.stats_label.start_typing()
 
     def _apply_developer_mode_style(self):
+        """
+        Setzt den Rahmenstil passend zum Developer-Mode.
+        """
         if self.developer_mode:
             self.setStyleSheet(
                 "QFrame#person_container { background: transparent; border: 2px solid #e65100; color: #1a1a1a; }"
@@ -216,5 +277,9 @@ class PersonContainer(QFrame):
             )
 
     def set_developer_mode(self, enabled):
+        """
+        Aktiviert oder deaktiviert den Developer-Style.
+        :param enabled: True aktiviert den Developer-Mode.
+        """
         self.developer_mode = bool(enabled)
         self._apply_developer_mode_style()
