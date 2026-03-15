@@ -214,6 +214,11 @@ class AdminMenu(QFrame):
             models_layout, "Moondream", has_prompt=True
         )
         self.moondream_enabled.toggled.connect(self.moondream_enabled_changed)
+        self.moondream_enabled.setToolTip("Moondream ist fest aktiviert und kann nicht ausgeschaltet werden.")
+        self.moondream_enabled.setStyleSheet(
+            "QCheckBox { font-size: 14px; }"
+            "QCheckBox:disabled { color: rgba(244, 228, 188, 120); }"
+        )
         self.moondream_prompt.editingFinished.connect(self._on_moondream_prompt_changed)
 
         self.ollama_enabled, self.ollama_prompt, _ = self._create_model_block(
@@ -443,7 +448,10 @@ class AdminMenu(QFrame):
         self._set_slider_value(self.pool_cooldown_slider, settings.get("pool_cooldown_batches", 3))
         self.pool_cooldown_value.setText(str(self.pool_cooldown_slider.value()))
 
-        self._set_checkbox_value(self.moondream_enabled, settings.get("moondream_enabled", True))
+        self.moondream_enabled.blockSignals(True)
+        self.moondream_enabled.setChecked(True)
+        self.moondream_enabled.blockSignals(False)
+        self.moondream_enabled.setEnabled(False)
         if self.moondream_prompt is not None:
             self._set_lineedit_value(self.moondream_prompt, settings.get("moondream_prompt", ""))
         self._set_checkbox_value(self.ollama_enabled, settings.get("ollama_enabled", True))

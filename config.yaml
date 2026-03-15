@@ -8,7 +8,7 @@ no_person_check_interval_ms: 2000
 animation_speed: 15
 fullscreen: true
 face_yolo:
-  confidence: 0.50
+  confidence: 0.5
 pool:
   enabled: true
   path: ./pool
@@ -58,4 +58,4 @@ pipeline:
   watch_dir: ./General ordner/final
   file_ext: .yaml
 llm_model: qwen2.5:3b
-pipeline_timeout_seconds: 1000
+pipeline_timeout_seconds: 300

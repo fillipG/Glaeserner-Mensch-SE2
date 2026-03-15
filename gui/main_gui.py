@@ -33,10 +33,10 @@ from .ui_widgets import AnimatedGraphicsButton, CircularTimerItem, LoadingSpinne
 
 # Definition von auswählbaren Ollama modellen
 LLM_OPTIONS = [
+    {"label": "Ollama - qwen2.5 3b (empfohlen)", "value": "qwen2.5:3b"},
     {"label": "Ollama - qwen3 4b (aktuell)", "value": "qwen3:4b"},
     {"label": "Ollama - gemma3 1b (aktuell, leicht)", "value": "gemma3:1b"},
     {"label": "Ollama - gemma3 4b (aktuell, stark)", "value": "gemma3:4b"},
-    {"label": "Ollama - qwen2.5 3b (empfohlen)", "value": "qwen2.5:3b"},
     {"label": "Ollama - llama3.2 3b", "value": "llama3.2:3b"},
     {"label": "Ollama - llama3.2 1b (schnell)", "value": "llama3.2:1b"},
     {"label": "Ollama - gemma3", "value": "gemma3"},
@@ -1206,7 +1206,7 @@ class ScalingAkteGUI(QGraphicsView):
         Aktiviert oder deaktiviert moondream in der Pipeline.
         :param enabled: True aktiviert moondream.
         """
-        self._update_pipeline_value("moondream", "enabled", bool(enabled))
+        self._update_pipeline_value("moondream", "enabled", True)
         self._reload_pipeline_settings()
 
     def _on_moondream_prompt(self, text):

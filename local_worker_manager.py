@@ -115,6 +115,7 @@ class LocalWorkerManager:
         """
         # Vor echtem Ollama-Betrieb prueft der Manager bewusst die komplette Kette:
         # Python-Modul, lokaler API-Dienst und verfuegbares Modell.
+        service_started = False
         if importlib.util.find_spec("ollama") is None:
             raise RuntimeError(
                 "Das Python-Paket 'ollama' ist in dieser Umgebung nicht installiert. "
@@ -128,6 +129,7 @@ class LocalWorkerManager:
                     "Bitte Ollama installieren oder manuell starten."
                 )
             self._start_ollama_service(ollama_executable)
+            service_started = True
             if not self._wait_for_ollama_api(timeout_seconds=15):
                 raise RuntimeError(
                     "Ollama konnte nicht gestartet werden. "
@@ -140,6 +142,8 @@ class LocalWorkerManager:
                 f"Das Modell '{model_name}' ist lokal nicht vorhanden. "
                 f"Bitte fuehre 'ollama pull {model_name}' aus."
             )
+        if service_started:
+            print(f"[OLLAMA] Lokaler Dienst gestartet. API erreichbar, Modell: {model_name}")
 
     def _load_configured_model(self):
         """Liest das aktuell konfigurierte LLM-Modell mit Fallback auf das Standardmodell."""
@@ -163,6 +167,7 @@ class LocalWorkerManager:
         if self._is_process_running(self._ollama_service_process):
             return
 
+        print(f"[OLLAMA] Starte lokalen Dienst ueber: {ollama_executable} serve")
         self._ollama_service_process = subprocess.Popen(
             [ollama_executable, "serve"],
             cwd=str(self.repo_root),

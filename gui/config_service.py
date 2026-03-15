@@ -33,7 +33,8 @@ class ConfigService:
             "Make sure it is a crime within the Stasi context.\n"
             "The output must be between 30 and 50 words long.\n"
             "Stay within this range and try to make it a little funny.\n"
-            "The story does not need to be explained. It is enough to show one crime."
+            "The story does not need to be explained. It is enough to show one crime.\n"
+            "Output only a single paragraph with no line breaks."
         )
         return {
             "language": "de",

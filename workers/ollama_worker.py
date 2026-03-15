@@ -120,6 +120,7 @@ def process_file(filename, worker_config):
     # SCHRITT 2: Lokale Ollama-Anfrage ausfuehren
     try:
         import ollama
+        print(f"[OLLAMA] Verarbeite {filename} mit Modell {model_name}...")
         response = ollama.chat(
             model=model_name,
             messages=[{"role": "user", "content": prompt}],
@@ -174,6 +175,7 @@ def write_output_and_cleanup(file_path, output_path, output_data):
             yaml.dump(output_data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
             f.flush()
             os.fsync(f.fileno())
+        print(f"[OLLAMA] {Path(output_path).name} geschrieben.")
     except Exception as exc:
         print(f"[OLLAMA] Konnte {output_path} nicht schreiben: {exc}")
         return False
