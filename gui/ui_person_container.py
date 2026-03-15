@@ -8,15 +8,16 @@ from .ui_typewriter import TypewriterLabel
 
 class PersonContainer(QFrame):
     """Container fuer Personenkarte inkl. Uebersetzungslogik der festen Labels."""
-    def __init__(self, daten, index, language="de"):
+    def __init__(self, daten, index, language="de", developer_mode=False):
         super().__init__()
         self.daten = daten
         self.index = index
         self.language = language
+        self.developer_mode = bool(developer_mode)
         self._last_description_source = None
         self._last_deepface_source = None
-        self.setFixedSize(680, 400)
-        self.setStyleSheet("background: transparent; border: none; color: #1a1a1a;")
+        self.setFixedSize(680, 480)
+        self._apply_developer_mode_style()
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(10, 5, 10, 5)
         main_layout.setSpacing(15)
@@ -135,3 +136,14 @@ class PersonContainer(QFrame):
         self.stats_label.full_text = self._build_stats_text(self.language)
         self.stats_label.start_typing()
 
+    def _apply_developer_mode_style(self):
+        if self.developer_mode:
+            self.setStyleSheet(
+                "background: transparent; border: 3px solid #e65100; color: #1a1a1a;"
+            )
+        else:
+            self.setStyleSheet("background: transparent; border: none; color: #1a1a1a;")
+
+    def set_developer_mode(self, enabled):
+        self.developer_mode = bool(enabled)
+        self._apply_developer_mode_style()

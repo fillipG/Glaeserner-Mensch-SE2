@@ -855,10 +855,15 @@ class ScalingAkteGUI(QGraphicsView):
         :return:
         """
         self.active_containers = []
-        pos_list = [(230, 80), (1000, 80), (230, 560), (1000, 560)]
+        pos_list = [(230, 50), (1000, 50), (230, 540), (1000, 540)]
         for i, pos in enumerate(pos_list):
             if i < len(self.person_data):
-                container = PersonContainer(self.person_data[i], i, self.current_language)
+                container = PersonContainer(
+                    self.person_data[i],
+                    i,
+                    self.current_language,
+                    developer_mode=self.developer_mode,
+                )
                 description = self.person_data[i].get("beschreibung")
                 if description:
                     container._last_description_source = description
@@ -1168,6 +1173,8 @@ class ScalingAkteGUI(QGraphicsView):
         """
         self.developer_mode = bool(enabled)
         self._update_config_value("developer_mode", self.developer_mode)
+        for container in self.active_containers:
+            container.set_developer_mode(self.developer_mode)
         # Geschlossene Ansicht sofort aktualisieren, damit der Button korrekt ein-/ausgeblendet wird.
         if not self._is_open and not self.is_animating:
             self.show_closed_folder()
