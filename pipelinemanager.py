@@ -1,18 +1,36 @@
+"""
+PipelineManager
+----------------------------------
+Diese Klasse regelt das Zusammenspiel der verschiedenen KI-Module. Da die KIs
+(Deepface, Moondream, Ollama) unabhängig voneinander in Docker-Containern laufen,
+dient dieser Manager als zentrale Sammelstelle für deren Ergebnisse.
+
+Zuständigkeiten:
+1. Überwachung der Ausgabe-Ordner auf neue Dateien.
+2. Zuordnung der KI-Ergebnisse (Biometrie, Texte) zur richtigen Person.
+3. Vollständigkeitsprüfung: Warten, bis alle KIs ihre Arbeit für eine Person beendet haben.
+4. Auffüllen der Ergebnisse mit "Pool-Personen", damit die GUI immer vier Akten zeigt.
+5. Vorbereitung und Übersetzung der Daten für die Anzeige in der GUI.
+
+AUTOREN: Dennis Penner, FLorian Hoeft
+"""
+
 import os
 import time
 import yaml
 import shutil
+import random
 from PyQt6.QtCore import QObject, pyqtSignal
-
 from service import TranslationService
 
-"""
-PIPELINEMANAGER-KLASSE:
-Überwacht den final-Ordner, sammelt KI-Ergebnisse von allen aktiven Modellen,
-sendet die fertigen Datensätze an die GUI und löscht die Dateien danach.
-"""
+
 class PipelineManager(QObject):
-    # Signal: Sendet Status-String und komplette Personenliste an GUI
+    """
+    Signal-Schnittstelle zur Benutzeroberfläche (GUI):
+    Dieses Signal wird gesendet, wenn die Datenverarbeitung abgeschlossen ist.
+    Es überträgt einen Status-Text (zur Steuerung der GUI-Ansicht) und eine
+    Liste mit den gesammelten Personendaten.
+    """
     data_finalized = pyqtSignal(str, list)
 
     def __init__(self, config_data, pool_loader=None):
@@ -21,35 +39,39 @@ class PipelineManager(QObject):
         self.target_lang = "en"
         self.translator = None
 
-        # Interner Speicher f?r Ergebnisse
+        # INTERNER SPEICHER:
+        # results_cache: Speichert Fragmente der KIs
         self.results_cache = {}
-        self.collected_faces = []
-        self.expected_face_count = 0
+        self.collected_faces = []  # Liste der fertig verarbeiteten Personen-Objekte
+        self.expected_face_count = 0  # Anzahl der Gesichter, die laut YOLO-Log zu erwarten sind
         self.last_logged_face_count = None
-        self.seen_files = set()
-        self.last_log_signature = None
+        self.seen_files = set()  # Verhindert Doppelt-Verarbeitung derselben Datei
+        self.last_log_signature = None  # Zeitstempel der faces_log.yaml zur Erkennung neuer Durchläufe
 
         self.reload_config(config_data)
 
-    # =========================================================
-    # THREAD LOOP: Prüft regelmäßig auf neue Dateien
-    # =========================================================
     def check_for_updates(self):
+        """
+        Hauptmethode (wird vom PipelineWorker-Thread aufgerufen).
+        Prüft zuerst das Log von YOLO und scannt dann nach neuen KI-Ergebnisdateien.
+        """
         try:
             log_name = "faces_log.yaml"
             log_path = os.path.join(self.watch_dir, log_name)
 
-            # Log-Datei prüfen, um Anzahl der erwarteten Gesichter zu lesen
+            # SCHRITT 1: Prüfen, wie viele Gesichter erkannt wurden
             if os.path.exists(log_path):
                 with open(log_path, 'r') as f:
                     log_data = yaml.safe_load(f) or {}
 
                 new_face_count = log_data.get("face_count", 0)
+                # Signature prüft Dateialter und Inhalt -> erkennt neuen Foto-Vorgang
                 log_signature = (os.path.getmtime(log_path), new_face_count)
                 # Ein neuer Batch kann denselben face_count wie der vorherige haben.
                 # Deshalb wird nicht nur auf die Anzahl, sondern auch auf die aktualisierte
                 # Log-Datei selbst geprueft.
                 if log_signature != self.last_log_signature:
+                    # Ein neues Foto wurde gemacht -> Cache für neuen Durchgang leeren
                     self.results_cache.clear()
                     self.collected_faces.clear()
                     self.seen_files.clear()
@@ -57,94 +79,102 @@ class PipelineManager(QObject):
 
                 self.expected_face_count = new_face_count
                 if self.last_logged_face_count != self.expected_face_count:
-                    print(f"[LOG] Expecting {self.expected_face_count} faces in total.")
+                    print(f"[LOG] Erwarte insgesamt {self.expected_face_count} Gesichter.")
                     self.last_logged_face_count = self.expected_face_count
 
+                # Sonderfall: YOLO hat ausgelöst, aber kein Gesicht bestätigt
                 if new_face_count <= 0:
                     self._handle_empty_batch()
                     return
 
-            # Alle neuen YAML-Dateien scannen
+            # SCHRITT 2: Neue Ergebnis-Dateien der KIs (z.B. face1_deepface.yaml) verarbeiten
             current_files = {f for f in os.listdir(self.watch_dir) if f.endswith(self.file_ext)}
             new_files = current_files - self.seen_files
 
             for file_name in new_files:
                 if file_name == log_name:
                     continue
+                # Kurze Pause, um sicherzustellen, dass die Datei fertig geschrieben wurde
                 time.sleep(0.05)
                 self.process_incoming_file(file_name)
                 self.seen_files.add(file_name)
 
         except Exception as e:
-            print(f"Error scanning: {e}")
+            print(f"Fehler beim Ordner-Scan: {e}")
 
-    # =========================================================
-    # Einzelne Datei verarbeiten und prüfen, ob alle Modelle geliefert haben
-    # =========================================================
     def process_incoming_file(self, file_name):
+        """
+        Ordnet eine gefundene Datei einer Person zu und prüft auf Vollständigkeit.
+        """
         try:
             name_no_ext = file_name.replace(self.file_ext, "")
             if "_" not in name_no_ext:
                 return
 
+            # Extrahiere Personen-ID und Modell-Name (z.B. 'face_0' und 'deepface')
             base_id, model_id = name_no_ext.rsplit("_", 1)
 
             if base_id not in self.results_cache:
                 self.results_cache[base_id] = {}
 
+            # Dateiinhalt in den Cache laden
             file_path = os.path.join(self.watch_dir, file_name)
             with open(file_path, "r", encoding="utf-8") as f:
                 data = yaml.safe_load(f)
                 self.results_cache[base_id][model_id] = data if isinstance(data, dict) else {"description": str(data)}
 
-            # Prüfen, ob alle Modelle für diese ID geliefert haben
+            # PRÜFUNG: Sind für diese ID alle benötigten KI-Analysen vorhanden?
             received = list(self.results_cache[base_id].keys())
             waiting_for = [m for m in self._get_effective_required_ids() if m not in received]
 
-            print(f"[{base_id.upper()}] Received: {model_id.upper()}")
+            print(f"[{base_id.upper()}] Empfangen: {model_id.upper()}")
             if not waiting_for:
+                # Alle Daten für diese Person da -> zur Batch-Liste hinzufügen
                 self.add_to_batch(base_id)
 
         except Exception as e:
-            print(f"Error processing {file_name}: {e}")
+            print(f"Fehler beim Verarbeiten von {file_name}: {e}")
 
     def _get_effective_required_ids(self):
+        """Bestimmt basierend auf der Config, auf welche KI-Ergebnisse gewartet werden muss."""
         required_ids = list(self.required_ids)
         if self._is_ollama_enabled_in_config():
             return required_ids
 
+        # Falls Ollama deaktiviert ist, wird Moondream als primäre Textquelle genutzt
         required_ids = [model_id for model_id in required_ids if model_id != "ollama"]
         if "moondream" not in required_ids:
             required_ids.append("moondream")
         return required_ids
 
-    # =========================================================
-    # Gesicht fertig vorbereiten und der Sammelliste hinzufügen
-    # =========================================================
     def add_to_batch(self, base_id):
+        """Bereitet die Daten einer einzelnen Person final auf."""
         captured_data = self.results_cache.get(base_id, {})
         df_data = captured_data.get("deepface", {})
+        # Text kommt entweder von Ollama oder Moondream
         description_data = captured_data.get("ollama") or captured_data.get("moondream", {})
 
+        # Mapping der KI-Rohdaten auf das für die GUI benötigte Format
         person_dict = self._build_person_dict(base_id, df_data, description_data)
         self.collected_faces.append(person_dict)
         print(f"--- [COLLECTED] {base_id} ({len(self.collected_faces)}/{self.expected_face_count}) ---")
 
+        # Wenn alle erkannten Gesichter verarbeitet sind -> Abgeschlossenes Paket an GUI senden
         if self.expected_face_count > 0 and len(self.collected_faces) >= self.expected_face_count:
             self.finalize_and_send_batch()
 
-    # =========================================================
-    # Baut das Dictionary für ein Gesicht
-    # =========================================================
     def _build_person_dict(self, base_id, df_data, description_data, face_image_path=None, source="real"):
+        """Erstellt das finale Daten-Objekt für eine Person (inkl. Übersetzung)."""
         beschreibung = description_data.get("description", "Keine Beschreibung gefunden.")
+
+        # Falls die Sprache auf Deutsch gestellt ist, wird der KI-Text hier übersetzt
         if self.translator and self.target_lang == "de":
             beschreibung = self.translator.translate_text(beschreibung)
 
         person_dict = {
             "titel": f"ID: {str(base_id).upper()}",
             "geschlecht": df_data.get("Geschlecht", "Unbekannt"),
-            "augen": "Braun",
+            "augen": "Braun",  # Dummy-Wert, da biometrisch schwer zu erfassen
             "stimmung": df_data.get("Emotion", "Neutral"),
             "alter": str(df_data.get("Alter", "N/A")),
             "gefahr": self._calculate_danger(df_data.get("Emotion", "Neutral")),
@@ -155,16 +185,19 @@ class PipelineManager(QObject):
             person_dict["face_image_path"] = face_image_path
         return person_dict
 
-    # =========================================================
-    # Füllt fehlende Personen aus dem Pool auf
-    # =========================================================
     def _append_pool_people(self, personen_daten):
+        """
+        Füllt das Set auf 4 Personen auf.
+        Ziel: In der Museumsanwendung sollen immer 4 Akten angezeigt werden, 
+        auch wenn nur 1 Person vor der Kamera stand.
+        """
         real_count = len(personen_daten)
         if real_count == 0 or real_count >= 4:
             return personen_daten
         if self.pool_loader is None:
             return personen_daten
 
+        # Zufällige Fake-Personen aus dem vorinstallierten Pool laden
         fehlende_slots = 4 - real_count
         pool_selection = self.pool_loader.get_pool_persons(fehlende_slots)
         for pool_person in pool_selection:
@@ -178,6 +211,7 @@ class PipelineManager(QObject):
                 )
             )
 
+        # IDs vereinheitlichen (FACE1, FACE2, etc.)
         for index, person in enumerate(personen_daten, start=1):
             person["titel"] = f"ID: FACE{index}"
 
@@ -281,18 +315,6 @@ class PipelineManager(QObject):
         return True
 
     # =========================================================
-    # Danger-Score berechnen
-    # =========================================================
-    def _calculate_danger(self, emotion):
-        danger_map = {
-            "Wütend": "HOCH",
-            "Beunruhigt": "MITTEL",
-            "Angst": "MITTEL",
-            "Ekel": "GERING"
-        }
-        return danger_map.get(emotion, "GERING")
-
-    # =========================================================
     # Fertige Daten an GUI senden
     # =========================================================
     def _handle_empty_batch(self):
@@ -303,21 +325,32 @@ class PipelineManager(QObject):
         self.cleanup_folders()
 
     def finalize_and_send_batch(self):
+        """Schließt den Vorgang ab und benachrichtigt die GUI."""
         if not self.collected_faces:
             return
 
+        # Mit Pool-Leuten auffüllen und senden
         data_to_send = self._append_pool_people(list(self.collected_faces))
-        print(f"\\nALL FACES READY! Sending batch of {len(data_to_send)} to GUI...")
+        print(f"\nAlle Ergebnisse bereit! Sende Batch von {len(data_to_send)} Personen an GUI...")
         self.data_finalized.emit("BATCH", data_to_send)
 
-        # Nach erfolgreichem Abschluss bleiben die Dateien zunaechst liegen,
-        # damit die GUI sie waehrend des Oeffnens und Anzeigens noch lesen kann.
+        # Speicher für diese Personengruppe leeren
         self.collected_faces = []
 
-    # =========================================================
-    # Ordner und internen Speicher zuruecksetzen
-    # =========================================================
+    def _calculate_danger(self, emotion):
+        """
+        Wählt zufällig eine Gefahrenstufe (GERING, MITTEL, HOCH).
+        Die ursprünglich geplante Abhängigkeit von der erkannten Emotion wurde
+        aufgrund unzuverlässiger Modell-Ergebnisse zugunsten von Zufallswerten ersetzt.
+        """
+        return random.choice(["GERING", "MITTEL", "HOCH"])
+
     def cleanup_folders(self):
+        """
+        Löscht alle temporären Dateien nach Abschluss oder Reset.
+        Dies verhindert, dass die Pipeline bei der nächsten Person fälschlicherweise 
+        alte KI-Ergebnisse einliest.
+        """
         cleanup_targets = [
             os.path.abspath(self.watch_dir),
             os.path.abspath("./General ordner/ollama_ai/ollama_inbox"),
@@ -340,11 +373,10 @@ class PipelineManager(QObject):
                     elif os.path.isdir(file_path):
                         shutil.rmtree(file_path)
                 except Exception as e:
-                    print(f"      [SKIP] {filename} is busy: {e}")
+                    print(f"[SKIP] {filename} wird noch verwendet: {e}")
 
         self._reset_batch_state()
-
-        print("System reset and ready for next person.")
+        print("System zurückgesetzt und bereit für neue Erfassung.")
 
     def _reset_batch_state(self):
         # Interner Speicher wird nach Batch-Ende getrennt vom Dateisystem geleert.
