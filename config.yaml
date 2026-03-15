@@ -13,7 +13,7 @@ pool:
   enabled: true
   path: ./pool
   max_extra_persons: 3
-  cooldown_batches: 0
+  cooldown_batches: 3
 pipeline:
 - id: moondream
   name: Visual Description (VLM)
