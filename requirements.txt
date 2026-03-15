@@ -1,0 +1,15 @@
+# Lokale Windows-Umgebung
+# Python 3.10 wird vorausgesetzt.
+#
+# torch separat installieren, damit CPU/GPU bewusst ausgewaehlt wird:
+# GPU (Beispiel, NVIDIA): py -3.10 -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
+# CPU:                   py -3.10 -m pip install torch torchvision torchaudio
+
+PyQt6>=6.7,<7
+PyYAML>=6.0,<7
+opencv-python>=4.10,<5
+numpy>=1.26,<2
+Pillow>=10.0,<13
+ultralytics>=8.3,<9
+deep-translator>=1.11,<2
+ollama>=0.5,<1
