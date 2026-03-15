@@ -6,6 +6,9 @@ from PIL import Image
 import os
 import time
 
+
+
+MOONDREAM_INBOX = "moondream_inbox" # Inbox für Moondream
 # Eingabebild
 INPUT_DIR = "main_image"
 confidence = 0.7  # Ab welcher Konfidenz ein Gesicht erkannt wird 
@@ -65,7 +68,10 @@ while True:
                 face_no_bg = remove(face_pil, session=rembg_session)
 
                 # Speichern
-                face_no_bg.save(f"body_yolo/body{dody_nr}.png")
+                # --- VERTEILUNG AN DIE INBOXEN ---
+                file_name = f"body{dody_nr}.png"
+                # 3. Speichern für Moondream (Moondream löscht dieses File nach der Arbeit)
+                face_no_bg.save(os.path.join(MOONDREAM_INBOX, file_name))
                 print(f"  Gesicht {dody_nr} gespeichert.")
                 dody_nr += 1
 

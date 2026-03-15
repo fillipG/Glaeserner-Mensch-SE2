@@ -1,9 +1,9 @@
 version: '3.8'
 
 services:
-  face-extraction:
+  body-extraction:
     build: .
-    container_name: body_extraction_app
+    container_name: body-extraction-app
     # Verhindert, dass der Container sofort nach Fehlern beendet wird (optional)
     restart: unless-stopped
     volumes:
@@ -14,7 +14,7 @@ services:
       - ../main_image:/app/main_image
       
       # Falls die Ergebnisse in den globalen "faces_yolo" Ordner sollen:
-      - ../body_yolo:/app/body_yolo
+      - ../moondream_ai/moondream_inbox:/app/moondream_inbox
       
       # Cache-Ordner: Verhindert erneutes Herunterladen der KI-Modelle
       - ./models_cache/rembg:/root/.u2net
