@@ -100,7 +100,7 @@ class ScalingAkteGUI(QGraphicsView):
         self._reset_countdown_timer = QTimer(self)
         self._reset_countdown_timer.timeout.connect(self._update_reset_countdown)
         self._reset_countdown_remaining = 0
-        
+
         # WARNUNGEN: "Keine Person" Timer
         self._no_person_warning_timer = QTimer(self)
         self._no_person_warning_timer.timeout.connect(self._blink_no_person_warning)
@@ -109,7 +109,7 @@ class ScalingAkteGUI(QGraphicsView):
         self._face_cascade = cv2.CascadeClassifier(
             os.path.join(cv2.data.haarcascades, "haarcascade_frontalface_default.xml")
         )
-        self._face_detect_interval_ms = 100 #Update der Bounding-Boxes in Live-Kamera 
+        self._face_detect_interval_ms = 100 #Update der Bounding-Boxes in Live-Kamera
         self._last_face_detect_ms = 0
         self._last_faces = []
         self._face_detection_scale = 0.5
@@ -539,22 +539,11 @@ class ScalingAkteGUI(QGraphicsView):
             rgb = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
             h, w, ch = rgb.shape
             q_img = QImage(rgb.data, w, h, ch * w, QImage.Format.Format_RGB888).copy()
-            source_pixmap = QPixmap.fromImage(q_img)
-            scaled_pixmap = source_pixmap.scaled(
-                self._cam_display_w,
-                self._cam_display_h,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
+            pixmap = QPixmap.fromImage(q_img).scaled(
+                self._cam_display_w, self._cam_display_h,
+                Qt.AspectRatioMode.IgnoreAspectRatio,
+                Qt.TransformationMode.SmoothTransformation
             )
-
-            # Letterbox statt Stretch: 4:3- oder 16:10-Kameras bleiben geometrisch korrekt.
-            pixmap = QPixmap(self._cam_display_w, self._cam_display_h)
-            pixmap.fill(QColor("black"))
-            painter = QPainter(pixmap)
-            x = (self._cam_display_w - scaled_pixmap.width()) // 2
-            y = (self._cam_display_h - scaled_pixmap.height()) // 2
-            painter.drawPixmap(x, y, scaled_pixmap)
-            painter.end()
             self._last_camera_preview_pixmap = pixmap
             self.camera_pixmap_item.setPixmap(pixmap)
         except Exception as e:
