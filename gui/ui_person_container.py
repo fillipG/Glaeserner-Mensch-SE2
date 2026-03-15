@@ -6,6 +6,45 @@ from PyQt6.QtGui import QPixmap, QFont, QImage
 from PyQt6.QtCore import Qt
 from .ui_typewriter import TypewriterLabel
 
+TRANSLATIONS = {
+    "de": {
+        # Geschlecht
+        "Man": "Mann",
+        "Woman": "Frau",
+        # Stimmung
+        "angry": "wütend",
+        "disgust": "angewidert",
+        "fear": "ängstlich",
+        "happy": "glücklich",
+        "sad": "traurig",
+        "surprise": "überrascht",
+        "neutral": "neutral",
+        # Gefahr
+        "GERING": "GERING",
+        "MITTEL": "MITTEL",
+        "HOCH": "HOCH",
+        "EXTREM": "EXTREM",
+    },
+    "en": {
+        # Geschlecht
+        "Mann": "Man",
+        "Frau": "Woman",
+        # Stimmung
+        "angry": "angry",
+        "disgust": "disgusted",
+        "fear": "fearful",
+        "happy": "happy",
+        "sad": "sad",
+        "surprise": "surprised",
+        "neutral": "neutral",
+        # Gefahr
+        "GERING": "LOW",
+        "MITTEL": "MEDIUM",
+        "HOCH": "HIGH",
+        "EXTREM": "EXTREME",
+    }
+}
+
 
 class PersonContainer(QFrame):
     """Container fuer Personenkarte inkl. Uebersetzungslogik der festen Labels."""
@@ -104,6 +143,10 @@ class PersonContainer(QFrame):
             )
         )
 
+    def _translate_value(self, value, language):
+        """Übersetzt einen Wert basierend auf den globalen Mappings."""
+        return TRANSLATIONS.get(language, {}).get(value, value)
+
     def _build_header_text(self, language):
         prefix = "PERSONENKENNZAHL" if language == "de" else "PERSON IDENTIFIER"
         return f"{prefix}: {self.person_number}"
@@ -114,8 +157,12 @@ class PersonContainer(QFrame):
             "en": {"geschlecht": "GENDER", "stimmung": "MOOD", "alter": "AGE"},
         }
         l = labels.get(language, labels["de"])
-        return (f"{l['geschlecht']}: {self.daten['geschlecht']}\n"
-                f"{l['stimmung']}: {self.daten['stimmung']}\n"
+
+        geschlecht = self._translate_value(self.daten['geschlecht'], language)
+        stimmung = self._translate_value(self.daten['stimmung'], language)
+
+        return (f"{l['geschlecht']}: {geschlecht}\n"
+                f"{l['stimmung']}: {stimmung}\n"
                 f"{l['alter']}: {self.daten['alter']}")
 
     def _generate_case_file_code(self):
@@ -130,7 +177,8 @@ class PersonContainer(QFrame):
 
     def _build_gefahr_text(self, language):
         label = "GEFAHRENSTUFE" if language == "de" else "THREAT LEVEL"
-        return f"{label}: {self.daten['gefahr']}"
+        gefahr = self._translate_value(self.daten['gefahr'], language)
+        return f"{label}: {gefahr}"
 
     def apply_language(self, language):
         """Aktualisiert nur die festen Labels (ohne Variablenwerte)."""
