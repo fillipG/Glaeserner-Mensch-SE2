@@ -10,10 +10,13 @@ prompt: 'Write a criminal report about a fictional person.
 
   Stay within this range and try to make it a little funny.
 
-  The story does not need to be explained. It is enough to show one crime.'
+  The story does not need to be explained. It is enough to show one crime.
+
+  Output only a single paragraph with no line breaks.'
 source_prompt: Auto-generated from face crop and DeepFace attributes by pool_builder.
-source_description: 'Reference label: Olaf. Approximate age: 34. Perceived gender:
-  Mann. Dominant emotion: angry. The text was auto-generated from a cropped portrait
+source_description: 'Reference label: Guido. Approximate age: 40. Perceived gender:
+  Mann. Dominant emotion: neutral. The text was auto-generated from a cropped portrait
   image for the museum pool.'
-description: Olaf, 34, male, angry. Accused of embezzling museum funds for his secret
-  Stasi operation.
+description: Guido, the neutral-looking man in his forties, was found guilty of secretly
+  recording conversations in the museum pool area, believing he was aiding intelligence
+  but actually leaking state secrets through his audio devices hidden under swim caps.
