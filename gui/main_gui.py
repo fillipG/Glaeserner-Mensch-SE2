@@ -10,7 +10,7 @@ BESCHREIBUNG: Haupt-GUI der "Akte" mit Kamera-Integration, Animationen, Ladeanze
 - Bereinigt Pipeline-Ausgabeverzeichnisse bei Bedarf.
 AUTOR: Fillip Giffhorn in Zusammenarbeit mit Lukas Käuper (Kamera-Integration + Logos)
 """
-
+#Test
 import os
 import sys
 import cv2
