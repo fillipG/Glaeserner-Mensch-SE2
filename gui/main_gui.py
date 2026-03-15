@@ -8,7 +8,7 @@ BESCHREIBUNG: Haupt-GUI der "Akte" mit Kamera-Integration, Animationen, Ladeanze
 - Nutzt Übersetzung für mehrsprachige KI-Beschreibungen.
 - Verwaltet GUI-Zustände (geschlossen, offen, analysierend, Ergebnisse bereit).
 - Bereinigt Pipeline-Ausgabeverzeichnisse bei Bedarf.
-AUTOR: Fillip Giffhorn
+AUTOR: Fillip Giffhorn in Zusammenarbeit mit Lukas Käuper (Kamera-Integration + Logos)
 """
 
 import os
@@ -100,19 +100,19 @@ class ScalingAkteGUI(QGraphicsView):
         self._reset_countdown_timer = QTimer(self)
         self._reset_countdown_timer.timeout.connect(self._update_reset_countdown)
         self._reset_countdown_remaining = 0
-
+        
         # WARNUNGEN: "Keine Person" Timer
         self._no_person_warning_timer = QTimer(self)
         self._no_person_warning_timer.timeout.connect(self._blink_no_person_warning)
 
-        # FACE-OVERLAY: Bounding-Boxes im Live-Preview
+        # FACE-OVERLAY: Bounding-Boxes im Live-Preview Autor: Lukas Käuper
         self._face_cascade = cv2.CascadeClassifier(
             os.path.join(cv2.data.haarcascades, "haarcascade_frontalface_default.xml")
         )
-        self._face_detect_interval_ms = 100 #Update der Bounding-Boxes in Live-Kamera
+        self._face_detect_interval_ms = 100 #Intervall der Bounding-Boxes in Live-Kamera 
         self._last_face_detect_ms = 0
         self._last_faces = []
-        self._face_detection_scale = 0.5
+        self._face_detection_scale = 0.5 # Skalierung für die Gesichtserkennung, damit sie schneller läuft.
         self.camera_pixmap_item = None
         self._last_camera_preview_pixmap = None
         self._pipeline_timeout_timer = QTimer(self)
@@ -495,7 +495,7 @@ class ScalingAkteGUI(QGraphicsView):
                 container.beschreibung.full_text = translated
                 container.beschreibung.start_typing()
 
-    def on_camera_frame(self, frame):
+    def on_camera_frame(self, frame): # Bekommt die Frames con der Kamera 
         """
         Callback-Funktion, die aufgerufen wird, wenn ein neues Kamera-Frame verfügbar ist. Verarbeitet das Frame, führt Gesichtserkennung durch und aktualisiert die Kamera-Vorschau in der GUI mit den erkannten Gesichtern als Bounding-Boxes.
         :param frame: Das aktuelle Kamera-Frame, das verarbeitet und in der GUI angezeigt werden soll.
@@ -504,8 +504,8 @@ class ScalingAkteGUI(QGraphicsView):
         if self.camera_pixmap_item is None:
             return
         try:
-            # KAMERA-FRAME: Face-Boxes + Rendering
-            display_frame = frame
+            # KAMERA-FRAME: Face-Boxes + Rendering Autor: Lukas Käuper
+            display_frame = frame # Original-Frame
             if self._face_cascade is not None and not self._face_cascade.empty():
                 now_ms = int(time.perf_counter() * 1000)
                 if (now_ms - self._last_face_detect_ms) >= self._face_detect_interval_ms:
@@ -527,16 +527,16 @@ class ScalingAkteGUI(QGraphicsView):
                             (int(x / scale), int(y / scale), int(w / scale), int(h / scale))
                             for (x, y, w, h) in faces
                         ]
-                    self._last_faces = faces
+                    self._last_faces = faces # Speichern der letzten erkannten Gesichter für die Anzeige
 
                 faces = self._last_faces or []
                 if len(faces) > 0:
                     display_frame = frame.copy()
-                    box_color = (188, 228, 244)  # BGR for #f4e4bc
+                    box_color = (188, 228, 244)  # Farbton für die Bounding-Box
                     for (x, y, w, h) in faces:
                         cv2.rectangle(display_frame, (x, y), (x + w, y + h), box_color, 2)
 
-            rgb = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
+            rgb = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB) # Umwandlung von BGR zu RGB 
             h, w, ch = rgb.shape
             q_img = QImage(rgb.data, w, h, ch * w, QImage.Format.Format_RGB888).copy()
             pixmap = QPixmap.fromImage(q_img).scaled(
@@ -606,7 +606,7 @@ class ScalingAkteGUI(QGraphicsView):
         if os.path.exists(path):
             self.scene.addPixmap(QPixmap(path).scaled(SCENE_WIDTH, SCENE_HEIGHT, Qt.AspectRatioMode.KeepAspectRatioByExpanding))
 
-        # Statische Logos hinzufügen
+        # Statische Logos hinzufügen Autor: Lukas Käuper
         logo_configs = [
             {
                 "path": PATHS.get("logo_bmftr"),
@@ -624,7 +624,7 @@ class ScalingAkteGUI(QGraphicsView):
                 "pos": (30, 200),
             }
         ]
-        for cfg in logo_configs:
+        for cfg in logo_configs: # Logos werden skaliert und positioniert
             logo_path = cfg.get("path")
             if not logo_path or not os.path.exists(logo_path):
                 continue
@@ -640,15 +640,15 @@ class ScalingAkteGUI(QGraphicsView):
             scaled_height = pixmap.height() * scale
             logo_item.setPos(pos_x, pos_bottom_y - scaled_height)
             logo_item.setZValue(8)
-
-        # KAMERA: Vorschau in der GUI 
-        self._cam_display_w = 896
-        self._cam_display_h = 504
-        cam_x = 20
+        
+        # KAMERA: Vorschau in der GUI Autor: Lukas Käuper
+        self._cam_display_w = 896  #Breite der Kamera
+        self._cam_display_h = 504  #Hoehe der Kamera
+        cam_x = 20 #
         cam_y = ((SCENE_HEIGHT - self._cam_display_h) // 2)-30
 
         border = self.scene.addRect(cam_x - 3, cam_y - 3, self._cam_display_w + 6, self._cam_display_h + 6)
-        border.setPen(QPen(QColor("#f4e4bc"), 3))
+        border.setPen(QPen(QColor("#f4e4bc"), 3)) #Farbe
         border.setZValue(9)
 
         placeholder = QPixmap(self._cam_display_w, self._cam_display_h)
@@ -658,14 +658,14 @@ class ScalingAkteGUI(QGraphicsView):
         new_item.setZValue(10)
         QTimer.singleShot(0, lambda: setattr(self, "camera_pixmap_item", new_item))
 
-        cam_label = QLabel("LIVE KAMERA")
+        cam_label = QLabel("LIVE KAMERA") # Beschriftung der Kamera
         cam_label.setFont(QFont("Graduate", 14, QFont.Weight.Bold))
         cam_label.setStyleSheet("color: #f4e4bc; background: transparent;")
         cam_label_proxy = self.scene.addWidget(cam_label)
         cam_label_proxy.setPos(cam_x, cam_y - 35)
         cam_label_proxy.setZValue(11)
 
-        self.wait_timer_item = CircularTimerItem(self.photo_delay, diameter=240)
+        self.wait_timer_item = CircularTimerItem(self.photo_delay, diameter=240) 
         self.scene.addItem(self.wait_timer_item)
         self.wait_timer_item.hide()
         self.wait_timer_item.setPos(SCENE_WIDTH - self.wait_timer_item.diameter - 450,
