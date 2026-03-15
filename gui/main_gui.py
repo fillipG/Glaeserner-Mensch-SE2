@@ -539,11 +539,22 @@ class ScalingAkteGUI(QGraphicsView):
             rgb = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
             h, w, ch = rgb.shape
             q_img = QImage(rgb.data, w, h, ch * w, QImage.Format.Format_RGB888).copy()
-            pixmap = QPixmap.fromImage(q_img).scaled(
-                self._cam_display_w, self._cam_display_h,
-                Qt.AspectRatioMode.IgnoreAspectRatio,
-                Qt.TransformationMode.SmoothTransformation
+            source_pixmap = QPixmap.fromImage(q_img)
+            scaled_pixmap = source_pixmap.scaled(
+                self._cam_display_w,
+                self._cam_display_h,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
             )
+
+            # Letterbox statt Stretch: 4:3- oder 16:10-Kameras bleiben geometrisch korrekt.
+            pixmap = QPixmap(self._cam_display_w, self._cam_display_h)
+            pixmap.fill(QColor("black"))
+            painter = QPainter(pixmap)
+            x = (self._cam_display_w - scaled_pixmap.width()) // 2
+            y = (self._cam_display_h - scaled_pixmap.height()) // 2
+            painter.drawPixmap(x, y, scaled_pixmap)
+            painter.end()
             self._last_camera_preview_pixmap = pixmap
             self.camera_pixmap_item.setPixmap(pixmap)
         except Exception as e:

@@ -32,6 +32,23 @@ class PersonPhotoCapture:
     # ----------------------------
     # Kamerazugriff
     # ----------------------------
+    def _configure_camera_stream(self, cap):
+        """Setzt bevorzugte 16:9-Modi, um Treiber-Stretching auf manchen Systemen zu reduzieren."""
+        try:
+            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter.fourcc(*"MJPG"))
+        except Exception:
+            pass
+
+        # Erst FullHD versuchen, dann HD. Viele UVC-Treiber liefern damit ein sauberes Seitenverhaeltnis.
+        preferred_modes = [(1920, 1080), (1280, 720)]
+        for width, height in preferred_modes:
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+            actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+            actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+            if abs(actual_w - width) <= 16 and abs(actual_h - height) <= 16:
+                return
+
     def ensure_camera_open(self):
         """Öffnet Kamera, falls nicht schon offen"""
         if self._cap is not None and self._cap.isOpened():
@@ -42,7 +59,10 @@ class PersonPhotoCapture:
             cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
             time.sleep(0.3)
             if cap.isOpened():
-                print(f"[{datetime.now()}] Kamera geöffnet (Index {index})")
+                self._configure_camera_stream(cap)
+                actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+                actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+                print(f"[{datetime.now()}] Kamera geöffnet (Index {index}, {actual_w}x{actual_h})")
                 self._cap = cap
                 return self._cap
             cap.release()
