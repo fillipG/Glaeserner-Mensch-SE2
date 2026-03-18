@@ -17,14 +17,20 @@ AUTOREN: Florian Hoeft
 
 import os
 import re
+import sys
 import time
 from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from path_service import get_paths
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
-INPUT_DIR = REPO_ROOT / "General ordner" / "ollama_ai" / "ollama_inbox"
-PROCESSED_DIR = REPO_ROOT / "General ordner" / "final"
+PATHS = get_paths()
+INPUT_DIR = PATHS["ollama_inbox"]
+PROCESSED_DIR = PATHS["final"]
 CONFIG_PATH = REPO_ROOT / "config.yaml"
 DEFAULT_MODEL = "qwen2.5:3b"
 

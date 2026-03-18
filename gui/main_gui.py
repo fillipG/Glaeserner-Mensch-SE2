@@ -387,7 +387,7 @@ class ScalingAkteGUI(QGraphicsView):
         # damit der naechste Durchlauf nicht auf Restdateien aus dem vorherigen Batch trifft.
         cleanup_dirs = [
             PATHS["final_dir"],
-            os.path.join("General ordner", "ollama_ai", "ollama_inbox"),
+            PATHS["ollama_inbox"],
         ]
         for folder in cleanup_dirs:
             if not os.path.exists(folder):

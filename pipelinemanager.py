@@ -22,6 +22,7 @@ import shutil
 import random
 from PyQt6.QtCore import QObject, pyqtSignal
 from service import TranslationService
+from path_service import get_paths
 
 
 class PipelineManager(QObject):
@@ -35,6 +36,7 @@ class PipelineManager(QObject):
 
     def __init__(self, config_data, pool_loader=None):
         super().__init__()
+        self.paths = get_paths()
         self.pool_loader = pool_loader
         self.target_lang = "en"
         self.translator = None
@@ -242,12 +244,19 @@ class PipelineManager(QObject):
 
         self.enabled_models = self._resolve_enabled_models(config_data)
         self.required_ids = [m["id"] for m in self.enabled_models]
+        final_dir = self.paths["final"]
 
         # Die Pipeline beobachtet immer genau den Ordner des ersten finalen Modells.
         # Bei aktiviertem Ollama ist das der final-Ordner fuer OLLAMA/DEEPFACE,
         # bei deaktiviertem Ollama wird auf MOONDREAM im final-Ordner zurueckgefallen.
-        watch_dir = self.enabled_models[0]["watch_dir"] if self.enabled_models else "./General ordner/final"
-        self.watch_dir = os.path.abspath(watch_dir)
+        # Wichtig: Der hier verwendete final-Fallback und pipeline[*].watch_dir muessen
+        # konsistent bleiben. Wenn nur eine der beiden Quellen angepasst wird, laufen
+        # Pipeline-Scan und Dateiausgabe auseinander.
+        watch_dir = self.enabled_models[0]["watch_dir"] if self.enabled_models else final_dir
+        normalized_watch_dir = str(watch_dir).replace("\\", "/").lstrip("./")
+        if normalized_watch_dir == "General ordner/final":
+            watch_dir = final_dir
+        self.watch_dir = os.path.abspath(os.fspath(watch_dir))
         self.file_ext = ".yaml"
         os.makedirs(self.watch_dir, exist_ok=True)
 
@@ -293,7 +302,7 @@ class PipelineManager(QObject):
             if not any(cfg.get("id") == "moondream" for cfg in final_models):
                 fallback_entry = dict(moondream_entry)
                 fallback_entry["final_output"] = True
-                fallback_entry["watch_dir"] = "./General ordner/final"
+                fallback_entry["watch_dir"] = os.fspath(self.paths["final"])
                 final_models.insert(0, fallback_entry)
 
         return final_models
@@ -352,8 +361,8 @@ class PipelineManager(QObject):
         alte KI-Ergebnisse einliest.
         """
         cleanup_targets = [
-            os.path.abspath(self.watch_dir),
-            os.path.abspath("./General ordner/ollama_ai/ollama_inbox"),
+            os.path.abspath(os.fspath(self.watch_dir)),
+            os.path.abspath(os.fspath(self.paths["ollama_inbox"])),
         ]
 
         for folder in cleanup_targets:

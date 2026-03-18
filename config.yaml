@@ -14,6 +14,13 @@ pool:
   path: ./pool
   max_extra_persons: 3
   cooldown_batches: 3
+paths:
+  final_dir: General ordner/final
+  ollama_inbox: General ordner/ollama_ai/ollama_inbox
+  moondream_inbox: General ordner/moondream_ai/moondream_inbox
+  deepface_inbox: General ordner/docker-compose-deepface/deepface_inbox
+  main_image: General ordner/main_image
+  sketch_dir: General ordner/sketch
 pipeline:
 - id: moondream
   name: Visual Description (VLM)
@@ -58,4 +65,4 @@ pipeline:
   watch_dir: ./General ordner/final
   file_ext: .yaml
 llm_model: qwen2.5:3b
-pipeline_timeout_seconds: 300
+pipeline_timeout_seconds: 1000
