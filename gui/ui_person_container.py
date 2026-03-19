@@ -122,9 +122,8 @@ class PersonContainer(QFrame):
         gefahr_label = QLabel(self._build_gefahr_text(self.language))
         gefahr_label.setFont(QFont("Goudy Bookletter 1911", 18, QFont.Weight.Bold))
         gefahr_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignBottom)
-        if daten['gefahr'] == "EXTREM":
-            gefahr_label.setStyleSheet("color: #a00000;")
         self.gefahr_label = gefahr_label
+        self._apply_danger_color(self.daten.get("gefahr", "MITTEL"))
 
         right_side.addWidget(akte_titel)
         right_side.addWidget(self.beschreibung)
@@ -226,6 +225,29 @@ class PersonContainer(QFrame):
         gefahr = self._translate_value(self.daten['gefahr'], language)
         return f"{label}: {gefahr}"
 
+    def _apply_danger_color(self, danger_value: str):
+        """Setzt die Gefahrenstufe aus dem internen Rohwert visuell um.
+
+        GERING, MITTEL und HOCH bleiben farbiger Text. Nur EXTREM wird als
+        roter Block hervorgehoben.
+        """
+        normalized_value = str(danger_value).upper().strip()
+        if normalized_value == "EXTREM":
+            self.gefahr_label.setStyleSheet(
+                "color: #111111; background-color: #c62828; "
+                "padding: 4px 10px; border-radius: 4px;"
+            )
+            return
+
+        colors = {
+            "GERING": "#1f8f3a",
+            "MITTEL": "#9a5a00",
+            "HOCH": "#d96c00",
+        }
+        color = colors.get(normalized_value, "#9a5a00")
+        self.gefahr_label.setStyleSheet("background-color: transparent; padding: 0px; border-radius: 0px;")
+        self.gefahr_label.setStyleSheet(f"color: {color};")
+
     def apply_language(self, language):
         """
         Aktualisiert nur die festen Labels (ohne Variablenwerte).
@@ -239,6 +261,7 @@ class PersonContainer(QFrame):
         self.akte_titel.full_text = self._build_akte_title(language)
         self.akte_titel.start_typing()
         self.gefahr_label.setText(self._build_gefahr_text(language))
+        self._apply_danger_color(self.daten.get("gefahr", "MITTEL"))
 
     def trigger_typing(self):
         """

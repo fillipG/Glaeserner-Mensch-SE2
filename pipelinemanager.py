@@ -346,13 +346,24 @@ class PipelineManager(QObject):
         # Speicher für diese Personengruppe leeren
         self.collected_faces = []
 
-    def _calculate_danger(self, emotion):
+    def _calculate_danger(self, emotion: str) -> str:
         """
-        Wählt zufällig eine Gefahrenstufe (GERING, MITTEL, HOCH).
-        Die ursprünglich geplante Abhängigkeit von der erkannten Emotion wurde
-        aufgrund unzuverlässiger Modell-Ergebnisse zugunsten von Zufallswerten ersetzt.
+        Leitet die Gefahrenstufe deterministisch aus der erkannten Emotion ab.
+        Unbekannte oder fehlende Werte fallen auf MITTEL zurück.
         """
-        return random.choice(["GERING", "MITTEL", "HOCH"])
+        mapping = {
+            "happy": "GERING",
+            "neutral": "MITTEL",
+            "surprise": "MITTEL",
+            "surprised": "MITTEL",
+            "sad": "HOCH",
+            "fear": "HOCH",
+            "fearful": "HOCH",
+            "disgust": "HOCH",
+            "disgusted": "HOCH",
+            "angry": "EXTREM",
+        }
+        return mapping.get(str(emotion).lower().strip(), "MITTEL")
 
     def cleanup_folders(self):
         """

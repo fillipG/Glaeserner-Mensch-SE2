@@ -97,8 +97,8 @@ def build_ollama_prompt(moondream_data, prompt_template):
 def process_file(filename, worker_config):
     """
     Standardpfad fuer eine neue Moondream-Zwischen-YAML.
-    Die Datei wird gelesen, an Ollama uebergeben und danach als finales
-    `_ollama.yaml` in den final-Ordner geschrieben.
+    Wenn Ollama aktiv ist, wird die Datei gelesen, an Ollama uebergeben und
+    danach als finales YAML in den final-Ordner geschrieben.
     """
     file_path = INPUT_DIR / filename
 
@@ -111,7 +111,6 @@ def process_file(filename, worker_config):
 
     prompt_template = worker_config.get("prompt", "").strip()
     if not prompt_template:
-        print(f"[OLLAMA] Kein Prompt konfiguriert, ueberspringe {filename}")
         return False
 
     # Wenn Ollama deaktiviert ist, wird die Moondream-Beschreibung nicht verworfen,
@@ -164,7 +163,6 @@ def process_file_passthrough(filename, moondream_data):
         "description": description,
         "source_model": "moondream",
     }
-    print(f"[{base_name.upper()}] OLLAMA disabled, forwarding MOONDREAM to FINAL")
     return write_output_and_cleanup(INPUT_DIR / filename, output_path, output_data)
 
 
@@ -181,23 +179,22 @@ def write_output_and_cleanup(file_path, output_path, output_data):
             yaml.dump(output_data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
             f.flush()
             os.fsync(f.fileno())
-        print(f"[OLLAMA] {Path(output_path).name} geschrieben.")
     except Exception as exc:
         print(f"[OLLAMA] Konnte {output_path} nicht schreiben: {exc}")
         return False
 
     try:
         os.remove(file_path)
-    except OSError as exc:
-        print(f"[OLLAMA] Konnte Inbox-Datei {Path(file_path).name} nicht loeschen: {exc}")
+    except OSError:
+        # Der nachgelagerte Cleanup kann die Inbox-Datei bereits entfernt haben.
+        # Das ist in diesem Ablauf harmlos und wird bewusst still ignoriert.
+        pass
     return True
 
 
 # =========================================================
 # WORKER-HAUPTSCHLEIFE
 # =========================================================
-
-print(f"[OLLAMA] Worker aktiv. Ueberwache: {INPUT_DIR}")
 
 while True:
     # Die Config wird in jeder Runde neu gelesen, damit Toggle und Prompt-Aenderungen

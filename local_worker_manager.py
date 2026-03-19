@@ -47,7 +47,8 @@ class LocalWorkerManager:
         """
         Startet den lokalen Ollama-Worker fuer die dateibasierte Pipeline.
         Falls Ollama in der Config aktiv ist, wird vorher der lokale Dienst
-        inklusive Modellverfuegbarkeit geprueft.
+        inklusive Modellverfuegbarkeit geprueft. Die Standardausgabe des
+        Workers bleibt dabei an die aufrufende Konsole gekoppelt.
         """
         # Der lokale Worker laeuft immer, weil er auch den Pass-Through-Fall fuer deaktiviertes
         # Ollama uebernimmt. Der eigentliche Ollama-Preflight ist nur noetig, wenn das Modell
@@ -66,7 +67,7 @@ class LocalWorkerManager:
         self._ollama_worker_process = subprocess.Popen(
             [sys.executable, "-u", str(script_path)],
             cwd=str(self.repo_root),
-            creationflags=self._windows_creation_flags(),
+            stderr=subprocess.DEVNULL,
         )
         time.sleep(0.5)
         if self._ollama_worker_process.poll() is not None:
