@@ -6,6 +6,13 @@ close_on_no_person_enabled: true
 close_on_no_person_seconds: 10
 no_person_check_interval_ms: 2000
 animation_speed: 15
+camera:
+  width: 1280
+  height: 720
+live_deepface:
+  enabled: true
+  interval_seconds: 3
+  max_faces: 4
 fullscreen: true
 face_yolo:
   confidence: 0.5

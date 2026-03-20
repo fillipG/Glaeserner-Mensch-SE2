@@ -3,15 +3,16 @@ import time
 from datetime import datetime
 
 import cv2
+import yaml
 
 
 class PersonPhotoCapture:
     """
     Kamera-Manager mit zwei Modi:
     1. capture_mode: voller Aufnahme-Modus mit Countdown und optionaler Vorschau
-    2. presence_mode: schnelle Präsenzprüfung ohne Countdown oder Preview
+    2. presence_mode: schnelle Praesenzpruefung ohne Countdown oder Preview
 
-    Außerdem: take_photo() für sofortiges Einzelbild ohne Speicherung
+    Ausserdem: take_photo() fuer sofortiges Einzelbild ohne Speicherung
     """
 
     def __init__(self, model, photo_delay=3, lost_tolerance=1.5):
@@ -19,30 +20,55 @@ class PersonPhotoCapture:
         self.PERSON_LOST_TOLERANCE = lost_tolerance
         self._cap = None
         self.model = model
+        self.language = "de"
         print("YOLO Modell uebernommen.")
 
     # ----------------------------
     # Runtime-Konfiguration
     # ----------------------------
-    def update_runtime_config(self, photo_delay=None):
-        """Ändert Foto-Delay zur Laufzeit"""
+    def update_runtime_config(self, photo_delay=None, language=None):
+        """Aendert Foto-Delay und Sprache zur Laufzeit"""
         if photo_delay is not None:
             self.PHOTO_DELAY_SECONDS = int(photo_delay)
+        if language in {"de", "en"}:
+            self.language = language
 
     # ----------------------------
     # Kamerazugriff
     # ----------------------------
-    def ensure_camera_open(self):
-        """Öffnet Kamera, falls nicht schon offen"""
+    def ensure_camera_open(self, log_open=True):
+        """Oeffnet Kamera, falls nicht schon offen"""
         if self._cap is not None and self._cap.isOpened():
             return self._cap
 
+        config = {}
+        try:
+            with open("config.yaml", "r", encoding="utf-8") as handle:
+                config = yaml.safe_load(handle) or {}
+        except Exception:
+            config = {}
+
         for index in [0, 1, 2]:
-            print(f"Teste Kamera Index {index}...")
             cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
             time.sleep(0.3)
             if cap.isOpened():
-                print(f"[{datetime.now()}] Kamera geöffnet (Index {index})")
+                camera_cfg = config.get("camera", {})
+                try:
+                    width = int(camera_cfg.get("width", 1280))
+                except (TypeError, ValueError):
+                    width = 1280
+                try:
+                    height = int(camera_cfg.get("height", 720))
+                except (TypeError, ValueError):
+                    height = 720
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+                cap.set(cv2.CAP_PROP_FPS, 30)
+                actual_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                actual_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                if log_open:
+                    print(f"[KAMERA] Geoeffnet (Index {index})")
+                    print(f"[KAMERA] Aufloesung: {actual_width}x{actual_height}")
                 self._cap = cap
                 return self._cap
             cap.release()
@@ -51,7 +77,7 @@ class PersonPhotoCapture:
         return None
 
     def release_camera(self):
-        """Schließt die Kamera sauber"""
+        """Schliesst die Kamera sauber"""
         if self._cap:
             self._cap.release()
             self._cap = None
@@ -59,9 +85,9 @@ class PersonPhotoCapture:
     # ----------------------------
     # Frame lesen
     # ----------------------------
-    def _read_frame(self):
+    def _read_frame(self, log_open=True):
         """Liest einen Frame von der Kamera"""
-        cap = self.ensure_camera_open()
+        cap = self.ensure_camera_open(log_open=log_open)
         if not cap:
             return None
         ret, frame = cap.read()
@@ -76,8 +102,8 @@ class PersonPhotoCapture:
     # ----------------------------
     def _detect_person(self, frame):
         """
-        Prüft:
-        - person_present: ist überhaupt eine Person sichtbar?
+        Prueft:
+        - person_present: ist ueberhaupt eine Person sichtbar?
         - person_valid: frontal, stabil, Augen/Schultern gut sichtbar
         """
         frame_h, frame_w = frame.shape[:2]
@@ -125,16 +151,24 @@ class PersonPhotoCapture:
             text = str(max(1, math.ceil(remaining)))
             font_scale, thickness = 6.0, 10
             (text_w, text_h), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)
-            cv2.putText(display, text, ((w - text_w)//2, (h + text_h)//2),
-                        cv2.FONT_HERSHEY_SIMPLEX, font_scale, (30, 200, 255), thickness, cv2.LINE_AA)
+            cv2.putText(
+                display,
+                text,
+                ((w - text_w) // 2, (h + text_h) // 2),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                font_scale,
+                (30, 200, 255),
+                thickness,
+                cv2.LINE_AA,
+            )
         # Hinweis, wenn Person nicht frontal
         elif not person_valid:
-            hint = "Bitte in die Kamera schauen"
+            hint = "Please look at the camera" if self.language == "en" else "Bitte in die Kamera schauen"
             font_scale, thickness = 1.0, 2
             (text_w, text_h), _ = cv2.getTextSize(hint, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)
-            text_x, text_y = (w - text_w)//2, h - 30
-            cv2.rectangle(display, (text_x-10, text_y-text_h-8), (text_x+text_w+10, text_y+8), (20,20,20), -1)
-            cv2.putText(display, hint, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (80,220,255), thickness)
+            text_x, text_y = (w - text_w) // 2, h - 30
+            cv2.rectangle(display, (text_x - 10, text_y - text_h - 8), (text_x + text_w + 10, text_y + 8), (20, 20, 20), -1)
+            cv2.putText(display, hint, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (80, 220, 255), thickness)
 
         return display
 
@@ -145,9 +179,9 @@ class PersonPhotoCapture:
         """
         Voller Aufnahme-Modus mit:
         - Live-Preview
-        - Stabilitätsprüfung
+        - Stabilitaetspruefung
         - Countdown
-        Gibt das Foto per return zurück.
+        Gibt das Foto per return zurueck.
         """
         photo_taken = False
         start_time = None
@@ -174,7 +208,7 @@ class PersonPhotoCapture:
                 last_person_seen = current_time
                 absence_logged = False
 
-            # Stabilität prüfen
+            # Stabilitaet pruefen
             if person_valid:
                 if person_stable_since is None:
                     person_stable_since = current_time
@@ -212,12 +246,12 @@ class PersonPhotoCapture:
     # ----------------------------
     def presence_mode(self, stop_requested_getter=None):
         """
-        Prüft, ob eine Person vorhanden ist, ohne Countdown oder Preview.
+        Prueft, ob eine Person vorhanden ist, ohne Countdown oder Preview.
         """
         if stop_requested_getter and stop_requested_getter():
             return None
 
-        frame = self._read_frame()
+        frame = self._read_frame(log_open=False)
         if frame is None:
             return False
 
@@ -229,7 +263,7 @@ class PersonPhotoCapture:
     # ----------------------------
     def take_photo(self):
         """
-        Macht sofort ein Foto und gibt es als numpy-Array zurück.
+        Macht sofort ein Foto und gibt es als numpy-Array zurueck.
         """
         frame = self._read_frame()
         if frame is None:

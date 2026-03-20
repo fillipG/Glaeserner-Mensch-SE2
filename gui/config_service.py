@@ -74,6 +74,15 @@ class ConfigService:
             "fullscreen": True,
             "developer_mode": False,
             "animation_speed": 15,
+            "camera": {
+                "width": 1280,
+                "height": 720,
+            },
+            "live_deepface": {
+                "enabled": False,
+                "interval_seconds": 3,
+                "max_faces": 4,
+            },
             "llm_model": self.default_llm_value,
             "face_yolo": {
                 "confidence": 0.5,
@@ -151,6 +160,8 @@ class ConfigService:
             "deepface_enabled": pipeline_defaults["deepface"]["enabled"],
             "deepface_use_retinaface": pipeline_defaults["deepface"]["use_retinaface"],
             "fer_enabled": pipeline_defaults["fer"]["enabled"],
+            "live_deepface_enabled": defaults["live_deepface"]["enabled"],
+            "live_deepface_interval_seconds": defaults["live_deepface"]["interval_seconds"],
             "llm_model": defaults["llm_model"],
         }
 
@@ -201,6 +212,14 @@ class ConfigService:
         config["fullscreen"] = defaults["fullscreen"]
         config["developer_mode"] = defaults["developer_mode"]
         config["llm_model"] = defaults["llm_model"]
+
+        live_deepface = config.get("live_deepface")
+        if not isinstance(live_deepface, dict):
+            live_deepface = {}
+            config["live_deepface"] = live_deepface
+        live_deepface["enabled"] = defaults["live_deepface"]["enabled"]
+        live_deepface["interval_seconds"] = defaults["live_deepface"]["interval_seconds"]
+        live_deepface["max_faces"] = defaults["live_deepface"]["max_faces"]
 
         face_yolo = config.get("face_yolo")
         if not isinstance(face_yolo, dict):

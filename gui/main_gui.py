@@ -28,6 +28,7 @@ from .config_service import ConfigService
 from .description_repository import DescriptionRepository
 from .gui_constants import SCENE_WIDTH, SCENE_HEIGHT, PATHS
 from .gui_state import GUIState
+from .live_deepface_service import LiveDeepFaceService
 from .ui_admin_menu import AdminMenu
 from .ui_person_container import PersonContainer
 from .ui_widgets import AnimatedGraphicsButton, CircularTimerItem, LoadingSpinnerItem, ResetCountdownItem
@@ -89,6 +90,7 @@ class ScalingAkteGUI(QGraphicsView):
 
         self.config_service = ConfigService(default_llm_value=LLM_OPTIONS[0]["value"])
         self.config = self._load_config()
+        self._live_deepface_svc = LiveDeepFaceService(self.config)
         self._apply_runtime_settings_from_config()
         self.active_containers = []
         self.current_language = self.config.get("language", "de")
@@ -113,7 +115,7 @@ class ScalingAkteGUI(QGraphicsView):
         self._face_cascade = cv2.CascadeClassifier(
             os.path.join(cv2.data.haarcascades, "haarcascade_frontalface_default.xml")
         )
-        self._face_detect_interval_ms = 100 #Intervall der Bounding-Boxes in Live-Kamera 
+        self._face_detect_interval_ms = 50 #Intervall der Bounding-Boxes in Live-Kamera 
         self._last_face_detect_ms = 0
         self._last_faces = []
         self._face_detection_scale = 0.5 # Skalierung für die Gesichtserkennung, damit sie schneller läuft.
@@ -499,6 +501,45 @@ class ScalingAkteGUI(QGraphicsView):
                 container.beschreibung.full_text = translated
                 container.beschreibung.start_typing()
 
+    def _filter_preview_faces(self, faces, frame_shape):
+        """Bereinigt die Haar-Cascade-Treffer fuer das Live-Overlay."""
+        frame_h, frame_w = frame_shape[:2]
+        min_face_size = max(60, int(min(frame_h, frame_w) * 0.08))
+        border_margin = max(8, int(min(frame_h, frame_w) * 0.01))
+
+        filtered_faces = []
+        for (x, y, w, h) in faces:
+            x = int(x)
+            y = int(y)
+            w = int(w)
+            h = int(h)
+            if w < min_face_size or h < min_face_size:
+                continue
+            aspect_ratio = w / float(max(h, 1))
+            if aspect_ratio < 0.7 or aspect_ratio > 1.35:
+                continue
+            if x <= border_margin or y <= border_margin:
+                continue
+            if (x + w) >= (frame_w - border_margin) or (y + h) >= (frame_h - border_margin):
+                continue
+            filtered_faces.append((x, y, w, h))
+
+        filtered_faces.sort(key=lambda box: box[2] * box[3], reverse=True)
+        deduplicated_faces = []
+        for candidate in filtered_faces:
+            cx = candidate[0] + candidate[2] / 2.0
+            cy = candidate[1] + candidate[3] / 2.0
+            is_duplicate = False
+            for existing in deduplicated_faces:
+                ex, ey, ew, eh = existing
+                if ex <= cx <= (ex + ew) and ey <= cy <= (ey + eh):
+                    is_duplicate = True
+                    break
+            if not is_duplicate:
+                deduplicated_faces.append(candidate)
+
+        return deduplicated_faces
+
     def on_camera_frame(self, frame): # Bekommt die Frames con der Kamera 
         """
         Callback-Funktion, die aufgerufen wird, wenn ein neues Kamera-Frame verfügbar ist. Verarbeitet das Frame, führt Gesichtserkennung durch und aktualisiert die Kamera-Vorschau in der GUI mit den erkannten Gesichtern als Bounding-Boxes.
@@ -522,23 +563,70 @@ class ScalingAkteGUI(QGraphicsView):
                         small = gray
                     faces = self._face_cascade.detectMultiScale(
                         small,
-                        scaleFactor=1.1,
-                        minNeighbors=5,
-                        minSize=(30, 30),
+                        scaleFactor=1.15,
+                        minNeighbors=8,
+                        minSize=(45, 45),
                     )
                     if scale < 1.0 and len(faces) > 0:
                         faces = [
                             (int(x / scale), int(y / scale), int(w / scale), int(h / scale))
                             for (x, y, w, h) in faces
                         ]
-                    self._last_faces = faces # Speichern der letzten erkannten Gesichter für die Anzeige
+                    self._last_faces = self._filter_preview_faces(
+                        faces,
+                        frame.shape,
+                    )  # Speichern der letzten erkannten Gesichter fuer die Anzeige
 
                 faces = self._last_faces or []
+                # Live-DeepFace bleibt ein reines Vorschau-Feature und laeuft nur ueber den Service.
+                self._live_deepface_svc.maybe_trigger(
+                    frame,
+                    faces,
+                    is_open=self._is_open,
+                    is_animating=self.is_animating,
+                    loading_active=self.loading_active,
+                )
+
                 if len(faces) > 0:
+                    display_faces = faces[:self._live_deepface_svc.max_faces]
                     display_frame = frame.copy()
                     box_color = (188, 228, 244)  # Farbton für die Bounding-Box
-                    for (x, y, w, h) in faces:
+                    for (x, y, w, h) in display_faces:
                         cv2.rectangle(display_frame, (x, y), (x + w, y + h), box_color, 2)
+                    # Die GUI zeichnet nur noch die vom Service vorbereiteten Overlay-Texte.
+                    overlay_data = self._live_deepface_svc.get_overlay_data(
+                        display_faces,
+                        language=self.current_language,
+                    )
+                    for overlay in overlay_data:
+                        text = overlay["text"]
+                        text_x = overlay["x"]
+                        text_y = max(overlay["y"] - 12, 20)
+                        font_scale = 0.9
+                        thickness = 2
+                        (text_w, text_h), baseline = cv2.getTextSize(
+                            text,
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            font_scale,
+                            thickness,
+                        )
+                        cv2.rectangle(
+                            display_frame,
+                            (text_x - 6, text_y - text_h - 6),
+                            (text_x + text_w + 6, text_y + baseline + 4),
+                            (20, 20, 20),
+                            -1,
+                        )
+                        cv2.putText(
+                            display_frame,
+                            text,
+                            (text_x, text_y),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            font_scale,
+                            (80, 220, 255),
+                            thickness,
+                            cv2.LINE_AA
+                        )
 
             rgb = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB) # Umwandlung von BGR zu RGB 
             h, w, ch = rgb.shape
@@ -546,7 +634,7 @@ class ScalingAkteGUI(QGraphicsView):
             pixmap = QPixmap.fromImage(q_img).scaled(
                 self._cam_display_w, self._cam_display_h,
                 Qt.AspectRatioMode.IgnoreAspectRatio,
-                Qt.TransformationMode.SmoothTransformation
+                Qt.TransformationMode.FastTransformation
             )
             self._last_camera_preview_pixmap = pixmap
             self.camera_pixmap_item.setPixmap(pixmap)
@@ -1018,6 +1106,8 @@ class ScalingAkteGUI(QGraphicsView):
         self.admin_menu.deepface_enabled_changed.connect(self._on_deepface_enabled)
         self.admin_menu.deepface_retinaface_changed.connect(self._on_deepface_retinaface_changed)
         self.admin_menu.fer_enabled_changed.connect(self._on_fer_enabled)
+        self.admin_menu.live_deepface_enabled_changed.connect(self._on_live_deepface_enabled_changed)
+        self.admin_menu.live_deepface_interval_changed.connect(self._on_live_deepface_interval_changed)
         self.admin_menu.llm_model_changed.connect(self._on_llm_model_changed)
         self.admin_menu.reset_defaults_requested.connect(self._reset_admin_settings_to_defaults)
 
@@ -1060,6 +1150,14 @@ class ScalingAkteGUI(QGraphicsView):
                 defaults["deepface_use_retinaface"]
             ),
             "fer_enabled": fer.get("enabled", defaults["fer_enabled"]),
+            "live_deepface_enabled": self.config.get(
+                "live_deepface",
+                {}
+            ).get("enabled", defaults["live_deepface_enabled"]),
+            "live_deepface_interval_seconds": self.config.get(
+                "live_deepface",
+                {}
+            ).get("interval_seconds", defaults["live_deepface_interval_seconds"]),
             "llm_model": self.config.get("llm_model", defaults["llm_model"]),
         }
         self.admin_menu.apply_settings(settings)
@@ -1087,6 +1185,7 @@ class ScalingAkteGUI(QGraphicsView):
         self.animation_speed = int(self.config.get("animation_speed", defaults["animation_speed"]))
         self.is_fullscreen = bool(self.config.get("fullscreen", defaults["fullscreen"]))
         self.developer_mode = bool(self.config.get("developer_mode", defaults["developer_mode"]))
+        self._live_deepface_svc.apply_config(self.config)
 
     def _reset_admin_settings_to_defaults(self):
         """Setzt die Admin-Einstellungen in der Konfiguration auf die Standardwerte zurück, indem die ConfigService verwendet wird, um die Standardwerte zu erhalten und in der aktuellen Konfiguration zu speichern. Nach dem Reset werden die Laufzeitwerte und die Admin-UI sofort neu synchronisiert, damit der Reset direkt sichtbar ist. Es werden auch relevante Timer gestoppt oder gestartet, um sicherzustellen, dass die GUI mit den neuen Einstellungen korrekt funktioniert. Schließlich werden die Pool- und Pipeline-Einstellungen neu geladen und der Zustand des lokalen Ollama-Workers synchronisiert, um sicherzustellen, dass alle Komponenten der GUI mit den zurückgesetzten Einstellungen übereinstimmen."""
@@ -1258,6 +1357,12 @@ class ScalingAkteGUI(QGraphicsView):
         """
         self._update_pipeline_value("fer", "enabled", bool(enabled))
         self._reload_pipeline_settings()
+
+    def _on_live_deepface_enabled_changed(self, enabled):
+        self._live_deepface_svc.set_enabled(enabled, save_callback=self._save_config)
+
+    def _on_live_deepface_interval_changed(self, value):
+        self._live_deepface_svc.set_interval(value, save_callback=self._save_config)
 
     def _on_llm_model_changed(self, value):
         """

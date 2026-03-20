@@ -146,11 +146,12 @@ class YOLOWorker(QThread):
                     cfg = yaml.safe_load(handle) or {}
 
                 photo_delay = int(cfg.get("photo_delay") or 3)
+                language = cfg.get("language", "de")
                 self._presence_check_interval_ms = max(
                     1000,
                     int(cfg.get("no_person_check_interval_ms", 2000) or 2000),
                 )
-                photo_capture.update_runtime_config(photo_delay=photo_delay)
+                photo_capture.update_runtime_config(photo_delay=photo_delay, language=language)
 
                 state = self._get_state()
 
@@ -169,7 +170,7 @@ class YOLOWorker(QThread):
                     # Speichert das Bild zentral ab, damit die KI-Docker-Container darauf zugreifen können
                     filename = "General ordner/main_image/face_trigger.jpg"
                     cv2.imwrite(filename, captured_frame)
-                    print(f"Bild gespeichert: {filename}")
+                    print(f"[{time.strftime('%H:%M:%S')}] Bild gespeichert: {filename}")
                     photo_capture.release_camera()
                     self.start_analyzing_mode()
                     self.photo_done.emit()

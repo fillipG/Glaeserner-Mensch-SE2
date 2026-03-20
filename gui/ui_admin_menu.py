@@ -30,6 +30,8 @@ class AdminMenu(QFrame):
     deepface_enabled_changed = pyqtSignal(bool)
     deepface_retinaface_changed = pyqtSignal(bool)
     fer_enabled_changed = pyqtSignal(bool)
+    live_deepface_enabled_changed = pyqtSignal(bool)
+    live_deepface_interval_changed = pyqtSignal(int)
     llm_model_changed = pyqtSignal(str)
     reset_defaults_requested = pyqtSignal()
 
@@ -249,6 +251,29 @@ class AdminMenu(QFrame):
         self.fer_enabled.toggled.connect(self.fer_enabled_changed)
 
         layout.addWidget(models_box)
+
+        layout.addWidget(self._section_title("LIVE-ANALYSE"))
+        live_analysis_box = self._create_group_box()
+        live_analysis_layout = QVBoxLayout(live_analysis_box)
+        self.live_deepface_enabled = QCheckBox("Live-Analyse (Alter / Geschlecht / Emotion)")
+        self.live_deepface_enabled.setStyleSheet("QCheckBox { font-size: 14px; }")
+        self.live_deepface_enabled.toggled.connect(self.live_deepface_enabled_changed)
+        live_analysis_layout.addWidget(self.live_deepface_enabled)
+        live_interval_row = QHBoxLayout()
+        live_interval_label = QLabel("Intervall (Sek.)")
+        live_interval_label.setMinimumWidth(220)
+        self.live_deepface_interval_edit = QLineEdit()
+        self.live_deepface_interval_edit.setValidator(QIntValidator(1, 60, self))
+        self.live_deepface_interval_edit.setPlaceholderText("z.B. 3")
+        self.live_deepface_interval_edit.setStyleSheet(
+            "QLineEdit { background-color: #2b2018; color: #f4e4bc; border: 1px solid #f4e4bc; "
+            "border-radius: 6px; padding: 6px; }"
+        )
+        self.live_deepface_interval_edit.editingFinished.connect(self._on_live_deepface_interval_changed)
+        live_interval_row.addWidget(live_interval_label)
+        live_interval_row.addWidget(self.live_deepface_interval_edit, 1)
+        live_analysis_layout.addLayout(live_interval_row)
+        layout.addWidget(live_analysis_box)
 
         layout.addWidget(self._section_title("LLM AUSWAHL"))
         llm_box = self._create_group_box()
@@ -497,6 +522,20 @@ class AdminMenu(QFrame):
         value = label_to_value.get(text, self.llm_options[0]["value"])
         self.llm_model_changed.emit(value)
 
+    def _on_live_deepface_interval_changed(self):
+        """
+        Validiert und emittiert das Live-DeepFace-Intervall aus dem Eingabefeld.
+        """
+        text = self.live_deepface_interval_edit.text().strip()
+        if not text:
+            return
+        try:
+            value = max(1, int(text))
+        except ValueError:
+            return
+        self.live_deepface_interval_edit.setText(str(value))
+        self.live_deepface_interval_changed.emit(value)
+
     def apply_settings(self, settings):
         """
         Synchronisiert alle Menueelemente mit den uebergebenen Einstellungen.
@@ -557,6 +596,11 @@ class AdminMenu(QFrame):
         self._set_checkbox_value(self.deepface_enabled, settings.get("deepface_enabled", False))
         self._set_checkbox_value(self.deepface_retinaface, settings.get("deepface_use_retinaface", True))
         self._set_checkbox_value(self.fer_enabled, settings.get("fer_enabled", False))
+        self._set_checkbox_value(self.live_deepface_enabled, settings.get("live_deepface_enabled", False))
+        self._set_lineedit_value(
+            self.live_deepface_interval_edit,
+            str(settings.get("live_deepface_interval_seconds", 3))
+        )
 
         self._set_llm_value(settings.get("llm_model", self.llm_options[0]["value"]))
 
