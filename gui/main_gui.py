@@ -39,6 +39,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QTimer, pyqtSlot
 from sketch import create_advanced_sketch
 from service import TranslationService
 from config_service import ConfigService
+from statistics_service import StatisticsService
 from pool_loader import PoolLoader
 from .description_repository import DescriptionRepository
 from .gui_constants import SCENE_WIDTH, SCENE_HEIGHT, PATHS
@@ -154,6 +155,12 @@ class ScalingAkteGUI(
         self.current_language = self.config.get("language", "de")
         self.translator = TranslationService(target_lang=self.current_language)
         self.description_repo = DescriptionRepository(PATHS["final_dir"])
+        stats_cfg = self.config.get("statistics", {})
+        self._stats_svc = StatisticsService(
+            stats_file="visitor_stats.yaml",
+            enabled=bool(stats_cfg.get("enabled", True)),
+            retention_days=int(stats_cfg.get("retention_days", 365)),
+        )
         self._pool_loader = PoolLoader("config.yaml", config_data=self.config)
 
         # ── Timer ─────────────────────────────────────────────────────────────
@@ -351,6 +358,10 @@ class ScalingAkteGUI(
             self.close_folder(reason="empty_result")
             return
         self._set_state(GUIState.RESULTS_READY)
+        # Besucherstatistik: nur echte Personen zählen (nicht Pool-Personen).
+        # Im Developer-Mode wird nicht gezählt, damit Testläufe die Zahlen nicht verfälschen.
+        real_face_count = self.description_repo.read_faces_log_count() or 0
+        self._stats_svc.record_session(real_face_count, developer_mode=self.developer_mode)
         self._auto_close_monitoring_pending = True
         self.handle_new_dataset(self._load_person_data_from_final())
 

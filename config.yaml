@@ -79,3 +79,7 @@ sounds:
   typewriter: assets/sounds/typewriter_key.wav
   folder_open: assets/sounds/folder_open.wav
   folder_close: assets/sounds/folder_close.wav
+statistics:
+  enabled: true
+  display: daily
+  retention_days: 365

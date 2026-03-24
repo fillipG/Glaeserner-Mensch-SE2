@@ -54,6 +54,12 @@ coverage.xml
 .pytest_cache/
 cover/
 
+# Übersetzungs-Cache (wächst automatisch an, muss nicht versioniert werden)
+translation_cache.yaml
+
+# Besucherstatistiken (täglich aktualisiert, sollte nicht versioniert werden)
+visitor_stats.yaml
+
 # Translations
 *.mo
 *.pot

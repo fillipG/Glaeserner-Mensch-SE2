@@ -35,6 +35,8 @@ class AdminMenu(QFrame):
     sounds_enabled_changed = pyqtSignal(bool)
     llm_model_changed = pyqtSignal(str)
     reset_defaults_requested = pyqtSignal()
+    statistics_enabled_changed = pyqtSignal(bool)
+    statistics_reset_requested = pyqtSignal()
 
     def __init__(self, llm_options=None, parent=None):
         """
@@ -298,6 +300,54 @@ class AdminMenu(QFrame):
         llm_layout.addWidget(self.llm_combo)
         layout.addWidget(llm_box)
 
+        layout.addWidget(self._section_title("BESUCHERSTATISTIK"))
+        stats_box = self._create_group_box()
+        stats_layout = QVBoxLayout(stats_box)
+
+        self.stats_enabled_button = QPushButton("Statistik: AN")
+        self.stats_enabled_button.setCheckable(True)
+        self.stats_enabled_button.setChecked(True)
+        self.stats_enabled_button.setStyleSheet(
+            "QPushButton { background-color: #3d5a3e; color: #f4e4bc; border: 1px solid #f4e4bc; "
+            "border-radius: 6px; padding: 6px 12px; }"
+            "QPushButton:checked { background-color: #3d5a3e; }"
+            "QPushButton:!checked { background-color: #5a3d3e; }"
+        )
+        self.stats_enabled_button.toggled.connect(self._on_stats_enabled_toggled)
+        stats_layout.addWidget(self.stats_enabled_button)
+
+        self.stats_reset_button = QPushButton("Statistik zurücksetzen")
+        self.stats_reset_button.setStyleSheet(
+            "QPushButton { background-color: #5a3d2b; color: #f4e4bc; border: 1px solid #f4e4bc; "
+            "border-radius: 6px; padding: 6px 12px; }"
+            "QPushButton:pressed { background-color: #7a3d2b; }"
+        )
+        self.stats_reset_button.clicked.connect(self._on_stats_reset_clicked)
+        stats_layout.addWidget(self.stats_reset_button)
+
+        # Read-only Anzeige der Statistik (alle Zeiträume immer sichtbar)
+        self.stats_today_label = QLabel("Heute: – Durchgänge, – Personen")
+        self.stats_today_label.setFont(QFont("Graduate", 9))
+        self.stats_today_label.setStyleSheet("color: #c8b89a;")
+        stats_layout.addWidget(self.stats_today_label)
+
+        self.stats_period_label = QLabel("Letzte 7 Tage: – Durchgänge, – Personen")
+        self.stats_period_label.setFont(QFont("Graduate", 9))
+        self.stats_period_label.setStyleSheet("color: #c8b89a;")
+        stats_layout.addWidget(self.stats_period_label)
+
+        self.stats_month_label = QLabel("Dieser Monat: – Durchgänge, – Personen")
+        self.stats_month_label.setFont(QFont("Graduate", 9))
+        self.stats_month_label.setStyleSheet("color: #c8b89a;")
+        stats_layout.addWidget(self.stats_month_label)
+
+        self.stats_total_label = QLabel("Gesamt: – Durchgänge, – Personen")
+        self.stats_total_label.setFont(QFont("Graduate", 9))
+        self.stats_total_label.setStyleSheet("color: #c8b89a;")
+        stats_layout.addWidget(self.stats_total_label)
+
+        layout.addWidget(stats_box)
+
         self.reset_defaults_button = QPushButton("AUF STANDARDEINSTELLUNGEN ZURUECKSETZEN")
         self.reset_defaults_button.setStyleSheet(
             "QPushButton { background-color: #6b2e1f; color: #f4e4bc; border: 2px solid #f4e4bc; "
@@ -542,6 +592,46 @@ class AdminMenu(QFrame):
         self.live_deepface_interval_edit.setText(str(value))
         self.live_deepface_interval_changed.emit(value)
 
+    def _on_stats_enabled_toggled(self, checked):
+        """
+        Schaltet die Besucherstatistik ein oder aus.
+        :param checked: True aktiviert die Statistik.
+        """
+        self.stats_enabled_button.setText("Statistik: AN" if checked else "Statistik: AUS")
+        self.statistics_enabled_changed.emit(checked)
+
+    def _on_stats_reset_clicked(self):
+        """
+        Emittiert das Reset-Signal nach Bestätigung durch den Admin.
+        """
+        self.statistics_reset_requested.emit()
+
+    def refresh_stats(self, today_data, week_data, month_data, total_data):
+        """
+        Aktualisiert alle vier Statistik-Labels im Admin-Menü.
+        Wird beim Öffnen des Menüs und nach jeder Änderung aufgerufen.
+        :param today_data: Dict mit 'durchgaenge' und 'personen' für heute.
+        :param week_data: Dict mit 'durchgaenge' und 'personen' der letzten 7 Tage.
+        :param month_data: Dict mit 'durchgaenge' und 'personen' des aktuellen Monats.
+        :param total_data: Dict mit 'durchgaenge' und 'personen' gesamt.
+        """
+        d = today_data or {"durchgaenge": 0, "personen": 0}
+        self.stats_today_label.setText(
+            f"Heute: {d['durchgaenge']} Durchgänge, {d['personen']} Personen"
+        )
+        w = week_data or {"durchgaenge": 0, "personen": 0}
+        self.stats_period_label.setText(
+            f"Letzte 7 Tage: {w['durchgaenge']} Durchgänge, {w['personen']} Personen"
+        )
+        m = month_data or {"durchgaenge": 0, "personen": 0}
+        self.stats_month_label.setText(
+            f"Dieser Monat: {m['durchgaenge']} Durchgänge, {m['personen']} Personen"
+        )
+        t = total_data or {"durchgaenge": 0, "personen": 0}
+        self.stats_total_label.setText(
+            f"Gesamt: {t['durchgaenge']} Durchgänge, {t['personen']} Personen"
+        )
+
     def apply_settings(self, settings):
         """
         Synchronisiert alle Menueelemente mit den uebergebenen Einstellungen.
@@ -613,6 +703,10 @@ class AdminMenu(QFrame):
         )
 
         self._set_llm_value(settings.get("llm_model", self.llm_options[0]["value"]))
+
+        stats_enabled = settings.get("statistics_enabled", True)
+        self._set_toggle_button(self.stats_enabled_button, stats_enabled)
+        self.stats_enabled_button.setText("Statistik: AN" if stats_enabled else "Statistik: AUS")
 
     def _set_slider_value(self, slider, value):
         """

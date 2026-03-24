@@ -206,6 +206,8 @@ class ConfigHandlersMixin:
         self.admin_menu.sounds_enabled_changed.connect(self._on_sounds_enabled_changed)
         self.admin_menu.llm_model_changed.connect(self._on_llm_model_changed)
         self.admin_menu.reset_defaults_requested.connect(self._reset_admin_settings_to_defaults)
+        self.admin_menu.statistics_enabled_changed.connect(self._on_statistics_enabled_changed)
+        self.admin_menu.statistics_reset_requested.connect(self._on_statistics_reset_requested)
 
     def _sync_admin_menu_with_config(self):
         """
@@ -251,8 +253,16 @@ class ConfigHandlersMixin:
                 "interval_seconds", defaults["live_deepface_interval_seconds"]
             ),
             "llm_model": self.config.get("llm_model", defaults["llm_model"]),
+            "statistics_enabled": self.config.get("statistics", {}).get("enabled", defaults["statistics_enabled"]),
         }
         self.admin_menu.apply_settings(settings)
+        # Statistik-Anzeige aktualisieren (alle 4 Zeiträume immer sichtbar)
+        self.admin_menu.refresh_stats(
+            self._stats_svc.get_today(),
+            self._stats_svc.get_period("daily"),
+            self._stats_svc.get_month(),
+            self._stats_svc.get_total(),
+        )
 
     def _reset_admin_settings_to_defaults(self):
         """
@@ -263,6 +273,8 @@ class ConfigHandlersMixin:
         self._save_config()
         # Alle Laufzeitwerte sofort aktualisieren, damit der Reset direkt sichtbar ist
         self._apply_runtime_settings_from_config()
+        # StatisticsService-Laufzeitstatus nach Reset synchronisieren
+        self._stats_svc.enabled = bool(self.config.get("statistics", {}).get("enabled", True))
         self._set_fullscreen(self.config.get("fullscreen", True))
         self._stop_no_person_timer()
         if self.loading_active:
@@ -426,3 +438,41 @@ class ConfigHandlersMixin:
         """
         self._update_config_value("llm_model", value)
         self._sync_local_ollama_worker_state()
+
+    def _on_statistics_enabled_changed(self, enabled):
+        """
+        Schaltet die Besucherstatistik-Aufzeichnung ein oder aus.
+        :param enabled: True aktiviert die Statistik.
+        """
+        statistics = self.config.setdefault("statistics", {})
+        statistics["enabled"] = enabled
+        self._stats_svc.enabled = enabled
+        self._save_config()
+        self.admin_menu.refresh_stats(
+            self._stats_svc.get_today(),
+            self._stats_svc.get_period("daily"),
+            self._stats_svc.get_month(),
+            self._stats_svc.get_total(),
+        )
+
+    def _on_statistics_reset_requested(self):
+        """
+        Löscht alle Besucherstatistik-Daten nach Bestätigung.
+        Sicherheitsabfrage verhindert versehentliches Löschen im Museumsbetrieb.
+        """
+        reply = QMessageBox.question(
+            self,
+            "Statistik zurücksetzen",
+            "Alle Besucherstatistik-Daten unwiderruflich löschen?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        self._stats_svc.reset()
+        self.admin_menu.refresh_stats(
+            self._stats_svc.get_today(),
+            self._stats_svc.get_period("daily"),
+            self._stats_svc.get_month(),
+            self._stats_svc.get_total(),
+        )

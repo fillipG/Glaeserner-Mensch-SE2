@@ -123,6 +123,10 @@ class ConfigService:
                 "max_extra_persons": 3,   # Max. Auffüll-Personen aus dem Pool
                 "cooldown_batches": 3,    # Wie viele Batches eine Pool-Person pausiert
             },
+            "statistics": {
+                "enabled": True,
+                "retention_days": 365,      # Einträge älter als N Tage werden automatisch gelöscht
+            },
             "pipeline": [
                 {
                     "id": PipelineStage.MOONDREAM,
@@ -196,6 +200,8 @@ class ConfigService:
             "live_deepface_enabled": defaults["live_deepface"]["enabled"],
             "live_deepface_interval_seconds": defaults["live_deepface"]["interval_seconds"],
             "llm_model": defaults["llm_model"],
+            "statistics_enabled": defaults["statistics"]["enabled"],
+            "statistics_retention_days": defaults["statistics"]["retention_days"],
         }
 
     def ensure_defaults(self, config):
@@ -272,6 +278,13 @@ class ConfigService:
         pool["enabled"] = defaults["pool"]["enabled"]
         pool["max_extra_persons"] = defaults["pool"]["max_extra_persons"]
         pool["cooldown_batches"] = defaults["pool"]["cooldown_batches"]
+
+        statistics = config.get("statistics")
+        if not isinstance(statistics, dict):
+            statistics = {}
+            config["statistics"] = statistics
+        statistics["enabled"] = defaults["statistics"]["enabled"]
+        statistics["retention_days"] = defaults["statistics"]["retention_days"]
 
         self._merge_pipeline_defaults(config, defaults["pipeline"])
         for model_id, keys in {

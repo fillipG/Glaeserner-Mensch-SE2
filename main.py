@@ -21,6 +21,7 @@ AUTOREN: Dennis Penner, Florian Hoeft
 import os
 import sys
 import time
+from ultralytics import YOLO
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication, QMessageBox
