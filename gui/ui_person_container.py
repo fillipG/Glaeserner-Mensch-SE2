@@ -4,13 +4,19 @@ Beschreibung: Baut die visuelle Personenkarte inklusive Texten, Bild und Sprachu
 Autor: Fillip Giffhorn und Dennis Penner (Textanimation)
 """
 
+from __future__ import annotations
+
 import cv2
 import random
+from typing import TYPE_CHECKING
 
 from PyQt6.QtWidgets import QFrame, QVBoxLayout, QHBoxLayout, QLabel
 from PyQt6.QtGui import QPixmap, QFont, QImage
 from PyQt6.QtCore import Qt
 from .ui_typewriter import TypewriterLabel
+
+if TYPE_CHECKING:
+    from .sound_service import SoundService
 
 TRANSLATIONS = {
     "de": {
@@ -55,7 +61,14 @@ TRANSLATIONS = {
 class PersonContainer(QFrame):
     """Container fuer Personenkarte inkl. Uebersetzungslogik der festen Labels."""
 
-    def __init__(self, daten, index, language="de", developer_mode=False):
+    def __init__(
+        self,
+        daten,
+        index,
+        language="de",
+        sound_service: SoundService | None = None,
+        developer_mode=False,
+    ):
         """
         Erstellt einen UI-Container fuer eine Person.
         :param daten: Personendaten fuer Anzeige und Texte.
@@ -68,6 +81,7 @@ class PersonContainer(QFrame):
         self.daten = daten
         self.index = index
         self.language = language
+        self._sound_service = sound_service
         self.developer_mode = bool(developer_mode)
         self._last_description_source = None
         self._last_deepface_source = None
@@ -80,7 +94,11 @@ class PersonContainer(QFrame):
         self.person_number = random.randint(100, 999)
         self.case_file_code = self._generate_case_file_code()
 
-        self.header = TypewriterLabel(self._build_header_text(self.language), interval=60)
+        self.header = TypewriterLabel(
+            self._build_header_text(self.language),
+            interval=60,
+            sound_service=self._sound_service,
+        )
         self.header.setFont(QFont("Graduate", 30, QFont.Weight.Bold))
         main_layout.addWidget(self.header)
 
@@ -94,7 +112,11 @@ class PersonContainer(QFrame):
 
         stats_font = QFont("Goudy Bookletter 1911", 16)
         stats_text = self._build_stats_text(self.language)
-        self.stats_label = TypewriterLabel(stats_text, interval=25)
+        self.stats_label = TypewriterLabel(
+            stats_text,
+            interval=25,
+            sound_service=self._sound_service,
+        )
         self.stats_label.setFont(stats_font)
 
         left_side.addWidget(img_placeholder)
@@ -111,11 +133,19 @@ class PersonContainer(QFrame):
         line.setStyleSheet("QFrame#separator_line { background-color: rgba(0, 0, 0, 110); border: none; }")
 
         right_side = QVBoxLayout()
-        akte_titel = TypewriterLabel(self._build_akte_title(self.language), interval=40)
+        akte_titel = TypewriterLabel(
+            self._build_akte_title(self.language),
+            interval=40,
+            sound_service=self._sound_service,
+        )
         akte_titel.setFont(QFont("Goudy Bookletter 1911", 24, QFont.Weight.Bold))
         self.akte_titel = akte_titel
 
-        self.beschreibung = TypewriterLabel("Warte auf Daten...", interval=20)
+        self.beschreibung = TypewriterLabel(
+            "Warte auf Daten...",
+            interval=20,
+            sound_service=self._sound_service,
+        )
         self.beschreibung.setFont(QFont("Goudy Bookletter 1911", 18))
         self.beschreibung.setWordWrap(True)
 

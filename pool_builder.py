@@ -63,9 +63,14 @@ except ImportError:
 BASE_DIR = Path(__file__).resolve().parent
 POOL_DIR = BASE_DIR / "pool"
 CONFIG_PATH = BASE_DIR / "config.yaml"
-FACE_YOLO_WEIGHTS = BASE_DIR / "General ordner" / "docker-compose-face-Yolo" / "yolov8n-face.pt"
-DEEPFACE_DOCKER_INBOX = BASE_DIR / "General ordner" / "docker-compose-deepface" / "deepface_inbox"
-DEEPFACE_DOCKER_OUTPUT_DIR = BASE_DIR / "General ordner" / "final"
+
+# Pfade werden aus path_service geladen, damit base_dir in config.yaml
+# ausreicht um das gesamte Verzeichnis umzubenennen.
+from path_service import get_paths as _get_paths
+_paths = _get_paths()
+FACE_YOLO_WEIGHTS = _paths["face_yolo_weights"]
+DEEPFACE_DOCKER_INBOX = _paths["deepface_inbox"]
+DEEPFACE_DOCKER_OUTPUT_DIR = _paths["final"]
 SUPPORTED_IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp", ".bmp")
 DEEPFACE_DOCKER_TIMEOUT_SECONDS = 90
 

@@ -1,6 +1,6 @@
 language: de
 developer_mode: false
-photo_delay: 3
+photo_delay: 6
 reset_countdown_seconds: 3
 close_on_no_person_enabled: true
 close_on_no_person_seconds: 10
@@ -73,3 +73,9 @@ pipeline:
   file_ext: .yaml
 llm_model: qwen2.5:3b
 pipeline_timeout_seconds: 1000
+sounds:
+  enabled: true
+  volume: 0.08
+  typewriter: assets/sounds/typewriter_key.wav
+  folder_open: assets/sounds/folder_open.wav
+  folder_close: assets/sounds/folder_close.wav

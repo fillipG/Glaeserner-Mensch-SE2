@@ -1,16 +1,19 @@
 """
 Zentrales Steuerungsskript (Main)
 ---------------------------------
-Dieses Skript dient als Haupteinstiegspunkt. Es verwaltet
-die grafische Benutzeroberfläche und koordiniert die im Hintergrund laufenden
-Prozesse für die Bildaufnahme und die KI-Pipeline.
+Dieses Skript ist der Haupteinstiegspunkt der Museumsanwendung.
+Es initialisiert alle Komponenten, verknüpft die Signale und startet
+die Qt-Eventschleife.
 
 Zuständigkeiten:
 1. Start und Konfiguration der PyQt6-GUI.
-2. Steuerung des YOLOWorkers (Kamera-Input und Personenerkennung).
-3. Steuerung des PipelineWorkers (Überwachung der KI-Ergebnisse in den Verzeichnissen).
-4. Vorbereitung der Ordnerstruktur und Bereinigung alter Daten beim Programmstart.
-5. Koordinierung eines sauberen Programmendes.
+2. Startup-Cleanup der temporären Ordner (verhindert Altdaten-Probleme).
+3. Verdrahtung der Signale zwischen GUI, YOLOWorker und PipelineWorker.
+4. Starten der lokalen Worker-Prozesse (Ollama).
+5. Sauberes Herunterfahren aller Threads beim Beenden.
+
+Hinweis: YOLOWorker und PipelineWorker wurden nach workers/ ausgelagert,
+um diese Datei übersichtlich zu halten.
 
 AUTOREN: Dennis Penner, Florian Hoeft
 """
@@ -18,21 +21,19 @@ AUTOREN: Dennis Penner, Florian Hoeft
 import os
 import sys
 import time
-from enum import Enum
-from threading import Lock
-from ultralytics import YOLO
 
-import yaml
-from PyQt6.QtCore import QThread, Qt, pyqtSignal
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
 
 def clear_directory(path):
     """
     Sorgt für Datenkonsistenz beim Programmstart.
-    KI-Modelle kommunizieren über Ordner (Inboxes). Um zu verhindern, dass
-    Ergebnisse vom vorherigen Programmdurchlauf fälschlicherweise als neu
-    erkannt werden, löscht diese Funktion alle Inhalte in den temporären Ordnern.
+
+    KI-Modelle kommunizieren über Ordner (Inboxes). Ohne dieses Cleanup
+    würden Ergebnisse vom vorherigen Programmdurchlauf beim nächsten Start
+    fälschlicherweise als neue Ergebnisse erkannt werden.
+    Wird für alle Inbox- und Ergebnis-Ordner beim Start aufgerufen.
     """
     os.makedirs(path, exist_ok=True)
     for entry in os.listdir(path):
@@ -52,221 +53,6 @@ def clear_directory(path):
             print(f"Startup-Cleanup konnte {entry_path} nicht loeschen: {exc}")
 
 
-class WorkerState(Enum):
-    """
-    Status-Definitionen für die Kamera-Logik.
-    Verhindert Konflikte, indem klar geregelt ist, ob die Kamera gerade
-    nach Personen sucht, ein Foto schießt oder nur die Anwesenheit prüft.
-    """
-    IDLE = "idle"  # Wartet auf eine Person
-    ANALYZING = "analyzing"  # Foto wurde geschossen, KIs arbeiten
-    PRESENCE_MONITORING = "presence_monitoring"  # Prüft, ob Nutzer noch da ist
-
-
-class YOLOWorker(QThread):
-    """
-    Der YOLOWorker kapselt die gesamte Bildverarbeitung der Kamera.
-    Er nutzt YOLOv8-Pose, um Personen im Sichtfeld zu erkennen und den
-    automatisierten Foto-Prozess (Countdown) einzuleiten.
-    """
-    frame_ready = pyqtSignal(object)  # Sendet Live-Bilder an die GUI
-    photo_done = pyqtSignal()  # Signalisiert: Foto erfolgreich erstellt
-    person_presence_changed = pyqtSignal(bool)  # Meldet, ob Person den Platz verlassen hat
-    startup_error = pyqtSignal(str)  # Meldet Fehler bei der Hardware-Initialisierung
-
-    def __init__(self):
-        super().__init__()
-        self._state = WorkerState.IDLE
-        self._presence_check_interval_ms = 2000
-        self._photo_capture = None
-        self._startup_error_message = None
-
-    def _get_state(self):
-        return self._state
-
-    def _set_state(self, state):
-        self._state = state
-
-    def start_capture_mode(self):
-        """Versetzt den Worker zurück in den Suchmodus (z.B. nach einem Reset)."""
-        print("YOLO Worker: IDLE")
-        self._set_state(WorkerState.IDLE)
-
-    def start_analyzing_mode(self):
-        """Stoppt die Kamera-Aktionen, während die KIs im Hintergrund rechnen."""
-        print("YOLO Worker: ANALYZING")
-        self._set_state(WorkerState.ANALYZING)
-
-    def start_presence_monitoring(self):
-        """Aktiviert die Prüfung, ob die Person nach dem Prozess noch vor dem Gerät steht."""
-        print("YOLO Worker: PRESENCE_MONITORING")
-        self._set_state(WorkerState.PRESENCE_MONITORING)
-
-    def prepare(self):
-        """
-        Lädt das YOLO-Modell vorab.
-        """
-        if self._photo_capture is not None or self._startup_error_message is not None:
-            return
-
-        try:
-            from PersonPhotoCapture import PersonPhotoCapture
-
-            os.makedirs("General ordner/main_image", exist_ok=True)
-            # Laden des vortrainierten YOLOv8-Pose-Modells für Personenerkennung
-            print("YOLO Worker: bereite Modell im Hauptthread vor...")
-            model = YOLO("yolov8n-pose.pt")
-            self._photo_capture = PersonPhotoCapture(model=model, photo_delay=3)
-        except Exception as exc:
-            self._startup_error_message = (
-                "YOLO/Torch konnte nicht initialisiert werden.\n"
-                "Wahrscheinlich fehlt auf diesem Windows-System eine Torch-Abhaengigkeit "
-                "oder es ist eine unpassende Torch-Installation aktiv.\n"
-                f"Details: {exc}"
-            )
-
-    def run(self):
-        """
-        Hauptschleife des Kamera-Threads.
-        Reagiert dynamisch auf Zustandsänderungen und Konfigurationsanpassungen.
-        """
-        self.prepare()
-        if self._startup_error_message is not None:
-            print(self._startup_error_message)
-            self.startup_error.emit(self._startup_error_message)
-            return
-
-        photo_capture = self._photo_capture
-        print("--- YOLO Worker: ACTIVE ---")
-
-        try:
-            while not self.isInterruptionRequested():
-                # Ermöglicht das Ändern des Countdowns im laufenden Betrieb via config.yaml
-                with open("config.yaml", "r", encoding="utf-8") as handle:
-                    cfg = yaml.safe_load(handle) or {}
-
-                photo_delay = int(cfg.get("photo_delay") or 3)
-                language = cfg.get("language", "de")
-                self._presence_check_interval_ms = max(
-                    1000,
-                    int(cfg.get("no_person_check_interval_ms", 2000) or 2000),
-                )
-                photo_capture.update_runtime_config(photo_delay=photo_delay, language=language)
-
-                state = self._get_state()
-
-                # FALL 1: Suche nach Personen & Automatischer Snapshot
-                if state == WorkerState.IDLE:
-                    captured_frame = photo_capture.capture_mode(
-                        frame_callback=lambda frame: self.frame_ready.emit(frame),
-                        stop_requested_getter=self.isInterruptionRequested,
-                        mode_active_getter=lambda: self._get_state() == WorkerState.IDLE,
-                    )
-                    if captured_frame is None:
-                        time.sleep(0.05)
-                        continue
-
-                    import cv2
-                    # Speichert das Bild zentral ab, damit die KI-Docker-Container darauf zugreifen können
-                    filename = "General ordner/main_image/face_trigger.jpg"
-                    cv2.imwrite(filename, captured_frame)
-                    print(f"[{time.strftime('%H:%M:%S')}] Bild gespeichert: {filename}")
-                    photo_capture.release_camera()
-                    self.start_analyzing_mode()
-                    self.photo_done.emit()
-                    continue
-
-                # FALL 2: Wartemodus während der Analyse (Ressourcenschonung)
-                if state == WorkerState.ANALYZING:
-                    photo_capture.release_camera()
-                    time.sleep(0.1)
-                    continue
-
-                # FALL 3: Prüfen, ob die Person den Erfassungsbereich verlassen hat
-                if state == WorkerState.PRESENCE_MONITORING:
-                    is_present = photo_capture.presence_mode(
-                        stop_requested_getter=self.isInterruptionRequested
-                    )
-                    if is_present is not None:
-                        self.person_presence_changed.emit(bool(is_present))
-                    photo_capture.release_camera()
-
-                    sleep_seconds = self._presence_check_interval_ms / 1000.0
-                    slept = 0.0
-                    while slept < sleep_seconds and not self.isInterruptionRequested():
-                        if self._get_state() != WorkerState.PRESENCE_MONITORING:
-                            break
-                        time.sleep(0.1) # Intervall für die Anwesenheitsprüfung
-                        slept += 0.1
-                    continue
-        except Exception as exc:
-            print(f"YOLO Thread Error: {exc}")
-        finally:
-            photo_capture.release_camera()
-
-
-class PipelineWorker(QThread):
-    """
-    Der PipelineWorker steuert den Datenfluss.
-    Er fungiert als Überwachungsinstanz, die regelmäßig prüft, ob die
-    lokalen KI-Dienste ihre Ergebnisse in die Inbox-Ordner geschrieben haben.
-    """
-    result_ready = pyqtSignal(str, list)
-    reload_pool_requested = pyqtSignal()
-    reload_pipeline_requested = pyqtSignal()
-
-    def __init__(self):
-        super().__init__()
-        self.manager = None
-        self._reload_lock = Lock()
-        self._pool_reload_pending = False
-        self._pipeline_reload_pending = False
-
-    def request_pool_reload(self):
-        with self._reload_lock:
-            self._pool_reload_pending = True
-
-    def request_pipeline_reload(self):
-        with self._reload_lock:
-            self._pipeline_reload_pending = True
-
-    def _consume_reload_requests(self):
-        with self._reload_lock:
-            pool_reload = self._pool_reload_pending
-            pipeline_reload = self._pipeline_reload_pending
-            self._pool_reload_pending = False
-            self._pipeline_reload_pending = False
-        return pool_reload, pipeline_reload
-
-    def run(self):
-        from pipelinemanager import PipelineManager
-        from pool_loader import PoolLoader
-
-        try:
-            with open("config.yaml", "r", encoding="utf-8") as handle:
-                config_data = yaml.safe_load(handle)
-
-            # PoolLoader lädt vordefinierte Textbausteine für die Kriminalgeschichten
-            pool_loader = PoolLoader("config.yaml", config_data=config_data)
-            # PipelineManager koordiniert die Logik der Dateiverarbeitung
-            self.manager = PipelineManager(config_data, pool_loader=pool_loader)
-            self.manager.data_finalized.connect(self.result_ready.emit)
-
-            print("--- Pipeline: ACTIVE ---")
-            while not self.isInterruptionRequested():
-                pool_reload, pipeline_reload = self._consume_reload_requests()
-                if self.manager is not None:
-                    if pipeline_reload:
-                        self.manager.reload_config()
-                    if pool_reload:
-                        self.manager.reload_pool_loader()
-                # Suche nach neuen Dateien in den KI-Inboxes
-                self.manager.check_for_updates()
-                time.sleep(0.5)  # Kurze Pause zur Vermeidung von hoher CPU-Last
-        except Exception as exc:
-            print(f"Pipeline Thread Error: {exc}")
-
-
 def run_app():
     """
     Hauptfunktion: Initialisiert die GUI, startet die Hintergrund-Worker
@@ -274,6 +60,8 @@ def run_app():
     """
     from gui.main_gui import ScalingAkteGUI
     from local_worker_manager import LocalWorkerManager
+    from workers.yolo_worker import YOLOWorker
+    from workers.pipeline_worker import PipelineWorker
 
     yolo_thread = YOLOWorker()
     yolo_thread.prepare()
@@ -283,17 +71,13 @@ def run_app():
     window.show()
     app.processEvents()
 
-    # Liste aller Verzeichnisse, die beim Start geleert werden müssen
-    startup_cleanup_dirs = [
-        "General ordner/final",
-        "General ordner/main_image",
-        "General ordner/sketch",
-        "General ordner/ollama_ai/ollama_inbox",
-        "General ordner/docker-compose-deepface/deepface_inbox",
-        "General ordner/moondream_ai/moondream_inbox",
-    ]
-    for cleanup_dir in startup_cleanup_dirs:
-        clear_directory(cleanup_dir)
+    # Alle KI-Kommunikationsordner beim Start leeren (Altdaten aus vorherigem
+    # Durchlauf würden sonst fälschlicherweise als neue Ergebnisse erkannt).
+    # Die Pfade kommen aus path_service → base_dir in config.yaml steuert sie alle.
+    from path_service import get_paths
+    paths = get_paths()
+    for path_key in ("final", "main_image", "sketch_dir", "ollama_inbox", "deepface_inbox", "moondream_inbox"):
+        clear_directory(str(paths[path_key]))
 
     # Verwaltung lokaler Subprozesse (z.B. Ollama-Server für die Texte)
     worker_manager = LocalWorkerManager()

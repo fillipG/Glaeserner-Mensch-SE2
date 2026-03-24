@@ -26,6 +26,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from path_service import get_paths
+from constants import PipelineStage
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PATHS = get_paths()
@@ -64,7 +65,7 @@ def load_ollama_config():
     # direkt in der naechsten Scan-Runde wirksam wird.
     config = load_config()
     for model_cfg in config.get("pipeline", []):
-        if model_cfg.get("id") == "ollama":
+        if model_cfg.get("id") == PipelineStage.OLLAMA:
             return {
                 "enabled": bool(model_cfg.get("enabled", True)),
                 "prompt": model_cfg.get("prompt", ""),

@@ -32,6 +32,7 @@ class AdminMenu(QFrame):
     fer_enabled_changed = pyqtSignal(bool)
     live_deepface_enabled_changed = pyqtSignal(bool)
     live_deepface_interval_changed = pyqtSignal(int)
+    sounds_enabled_changed = pyqtSignal(bool)
     llm_model_changed = pyqtSignal(str)
     reset_defaults_requested = pyqtSignal()
 
@@ -186,6 +187,11 @@ class AdminMenu(QFrame):
         )
         self.developer_mode_button.toggled.connect(self._on_developer_mode_toggled)
         graphics_layout.addWidget(self.developer_mode_button)
+
+        self.sounds_enabled = QCheckBox("Sounds aktiviert")
+        self.sounds_enabled.setStyleSheet("QCheckBox { font-size: 14px; }")
+        self.sounds_enabled.toggled.connect(self.sounds_enabled_changed)
+        graphics_layout.addWidget(self.sounds_enabled)
         layout.addWidget(graphics_box)
 
         layout.addWidget(self._section_title("POOL"))
@@ -575,6 +581,10 @@ class AdminMenu(QFrame):
         self._set_toggle_button(self.developer_mode_button, settings.get("developer_mode", False))
         self.developer_mode_button.setText(
             "Developer Mode: AN" if self.developer_mode_button.isChecked() else "Developer Mode: AUS"
+        )
+        self._set_checkbox_value(
+            self.sounds_enabled,
+            settings.get("sounds_enabled", True)
         )
 
         self._set_toggle_button(self.pool_enabled_button, settings.get("pool_enabled", True))

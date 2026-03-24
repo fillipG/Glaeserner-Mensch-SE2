@@ -23,6 +23,7 @@ import random
 from PyQt6.QtCore import QObject, pyqtSignal
 from service import TranslationService
 from path_service import get_paths
+from constants import PipelineStage
 
 
 class PipelineManager(QObject):
@@ -144,17 +145,17 @@ class PipelineManager(QObject):
             return required_ids
 
         # Falls Ollama deaktiviert ist, wird Moondream als primäre Textquelle genutzt
-        required_ids = [model_id for model_id in required_ids if model_id != "ollama"]
-        if "moondream" not in required_ids:
-            required_ids.append("moondream")
+        required_ids = [model_id for model_id in required_ids if model_id != PipelineStage.OLLAMA]
+        if PipelineStage.MOONDREAM not in required_ids:
+            required_ids.append(PipelineStage.MOONDREAM)
         return required_ids
 
     def add_to_batch(self, base_id):
         """Bereitet die Daten einer einzelnen Person final auf."""
         captured_data = self.results_cache.get(base_id, {})
-        df_data = captured_data.get("deepface", {})
+        df_data = captured_data.get(PipelineStage.DEEPFACE, {})
         # Text kommt entweder von Ollama oder Moondream
-        description_data = captured_data.get("ollama") or captured_data.get("moondream", {})
+        description_data = captured_data.get(PipelineStage.OLLAMA) or captured_data.get(PipelineStage.MOONDREAM, {})
 
         # Mapping der KI-Rohdaten auf das für die GUI benötigte Format
         person_dict = self._build_person_dict(base_id, df_data, description_data)
@@ -253,8 +254,12 @@ class PipelineManager(QObject):
         # konsistent bleiben. Wenn nur eine der beiden Quellen angepasst wird, laufen
         # Pipeline-Scan und Dateiausgabe auseinander.
         watch_dir = self.enabled_models[0]["watch_dir"] if self.enabled_models else final_dir
-        normalized_watch_dir = str(watch_dir).replace("\\", "/").lstrip("./")
-        if normalized_watch_dir == "General ordner/final":
+        # Relativen watch_dir aus der Config zu absolutem Pfad auflösen.
+        # Falls er auf denselben Ordner wie final_dir zeigt (egal ob per base_dir
+        # oder Einzelüberschreibung konfiguriert), immer das aufgelöste Path-Objekt nehmen.
+        abs_watch = os.path.abspath(str(watch_dir).lstrip("./"))
+        abs_final = os.path.abspath(os.fspath(final_dir))
+        if abs_watch == abs_final:
             watch_dir = final_dir
         self.watch_dir = os.path.abspath(os.fspath(watch_dir))
         self.file_ext = ".yaml"
@@ -283,7 +288,7 @@ class PipelineManager(QObject):
         ]
 
         ollama_entry = next(
-            (cfg for cfg in pipeline if isinstance(cfg, dict) and cfg.get("id") == "ollama"),
+            (cfg for cfg in pipeline if isinstance(cfg, dict) and cfg.get("id") == PipelineStage.OLLAMA),
             None,
         )
         ollama_enabled = bool(ollama_entry.get("enabled", True)) if ollama_entry else False
@@ -292,14 +297,14 @@ class PipelineManager(QObject):
             return final_models
 
         moondream_entry = next(
-            (cfg for cfg in pipeline if isinstance(cfg, dict) and cfg.get("id") == "moondream"),
+            (cfg for cfg in pipeline if isinstance(cfg, dict) and cfg.get("id") == PipelineStage.MOONDREAM),
             None,
         )
         if moondream_entry and moondream_entry.get("enabled", False):
             # Ohne Ollama wird Moondream temporaer als finales Textmodell behandelt,
             # damit die Pipeline weiter auf eine Textdatei im final-Ordner warten kann.
-            final_models = [cfg for cfg in final_models if cfg.get("id") != "ollama"]
-            if not any(cfg.get("id") == "moondream" for cfg in final_models):
+            final_models = [cfg for cfg in final_models if cfg.get("id") != PipelineStage.OLLAMA]
+            if not any(cfg.get("id") == PipelineStage.MOONDREAM for cfg in final_models):
                 fallback_entry = dict(moondream_entry)
                 fallback_entry["final_output"] = True
                 fallback_entry["watch_dir"] = os.fspath(self.paths["final"])
@@ -319,7 +324,7 @@ class PipelineManager(QObject):
             return True
 
         for cfg in pipeline:
-            if isinstance(cfg, dict) and cfg.get("id") == "ollama":
+            if isinstance(cfg, dict) and cfg.get("id") == PipelineStage.OLLAMA:
                 return bool(cfg.get("enabled", True))
         return True
 
