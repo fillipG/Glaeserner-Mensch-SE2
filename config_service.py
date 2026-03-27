@@ -78,7 +78,8 @@ class ConfigService:
         # Er definiert den Stil und Umfang der generierten Kriminalgeschichten.
         ollama_prompt = (
             "Write a criminal report about a fictional person.\n"
-            "The person has already been described. Write only what crime\n"
+            "The person has already been described including their appearance, clothing and\n"
+            "body language. Write only what crime\n"
             "the person might have committed in a short flowing paragraph.\n"
             "Make sure it is a crime within the Stasi context.\n"
             "The output must be between 30 and 50 words long.\n"
@@ -116,6 +117,17 @@ class ConfigService:
             "llm_model": self.default_llm_value,
             "face_yolo": {
                 "confidence": 0.5,  # Mindestsicherheit für Gesichtserkennung (0.1-0.9)
+                "max_faces": 4,     # Mehr als 4 Gesichter werden nach Qualitaet begrenzt
+                # Moondream-Bildquelle:
+                # face = Gesichts-Crop, body = Koerper-Box, body_seg = freigestellter Koerper.
+                # shadow bleibt ein versteckter Entwicklermodus, ist aber kein Standard mehr,
+                # damit der Modus im Admin-Menue jederzeit sichtbar und umschaltbar bleibt.
+                "moondream_crop_mode": "face",
+                "body_confidence": 0.35,
+                "body_padding_ratio": 0.12,
+                "body_fallback_to_face": True,
+                "body_matching_required": False,
+                "debug_matching": True,
             },
             "pool": {
                 "enabled": True,
@@ -136,7 +148,13 @@ class ConfigService:
                     "watch_dir": "./General ordner/ollama_ai/ollama_inbox",
                     "file_ext": ".yaml",
                     "show_preview": True,
-                    "prompt": "Name the clothing and any accessories the person is wearing. Put in 4 Sentences",
+                    # Zusatzteil original in Englisch: Include their clothing, accessories,
+                    # body posture, and any suspicious or notable moveements.
+                    "prompt": (
+                        "Describe this person in 4 sentences as if writing a surveillance report. "
+                        "Include their clothing, accessories, body posture, and any suspicious or notable "
+                        "moveements."
+                    ),
                 },
                 {
                     "id": PipelineStage.OLLAMA,
@@ -145,6 +163,9 @@ class ConfigService:
                     "final_output": True,
                     "watch_dir": "./General ordner/final",
                     "file_ext": ".yaml",
+                    # Zusatzteil original in Englisch: Make sure it is a crime within the
+                    # Stasi context. The output must be between 30 and 50 words long.
+                    # Stay within this range and try to make it a little funny.
                     "prompt": ollama_prompt,
                 },
                 {
@@ -176,6 +197,7 @@ class ConfigService:
         defaults = self.get_default_config()
         pipeline_defaults = {entry["id"]: entry for entry in defaults["pipeline"]}
         pool_defaults = defaults["pool"]
+        face_yolo_defaults = defaults["face_yolo"]
         return {
             "photo_delay": defaults["photo_delay"],
             "sounds_enabled": defaults["sounds"]["enabled"],
@@ -185,6 +207,9 @@ class ConfigService:
             "animation_speed": defaults["animation_speed"],
             "pipeline_timeout_seconds": defaults["pipeline_timeout_seconds"],
             "face_yolo_confidence": defaults["face_yolo"]["confidence"],
+            "body_yolo_confidence": face_yolo_defaults["body_confidence"],
+            "body_padding_ratio": face_yolo_defaults["body_padding_ratio"],
+            "moondream_crop_mode": face_yolo_defaults.get("moondream_crop_mode", "face"),
             "fullscreen": defaults["fullscreen"],
             "developer_mode": defaults["developer_mode"],
             "pool_enabled": pool_defaults["enabled"],
@@ -269,6 +294,13 @@ class ConfigService:
             face_yolo = {}
             config["face_yolo"] = face_yolo
         face_yolo["confidence"] = defaults["face_yolo"]["confidence"]
+        face_yolo["max_faces"] = defaults["face_yolo"]["max_faces"]
+        face_yolo["moondream_crop_mode"] = defaults["face_yolo"]["moondream_crop_mode"]
+        face_yolo["body_confidence"] = defaults["face_yolo"]["body_confidence"]
+        face_yolo["body_padding_ratio"] = defaults["face_yolo"]["body_padding_ratio"]
+        face_yolo["body_fallback_to_face"] = defaults["face_yolo"]["body_fallback_to_face"]
+        face_yolo["body_matching_required"] = defaults["face_yolo"]["body_matching_required"]
+        face_yolo["debug_matching"] = defaults["face_yolo"]["debug_matching"]
         config.pop("face_yolo_confidence", None)
 
         pool = config.get("pool")

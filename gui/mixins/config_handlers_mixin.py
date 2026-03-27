@@ -15,6 +15,8 @@ Hinweis zum Reload-Mechanismus:
     Einstellungsänderungen im Admin-Menü rufen immer _save_config() auf.
     Änderungen die Pipeline-Verhalten betreffen, rufen zusätzlich
     _reload_pipeline_settings() auf (leitet an PipelineWorker weiter).
+    Pool-Änderungen werden ausschließlich an den PipelineWorker gemeldet,
+    damit die Auswahlhistorie zentral in der Pipeline bleibt.
     Ollama-relevante Änderungen rufen _sync_local_ollama_worker_state() auf.
 
 Benötigte self-Attribute (in ScalingAkteGUI.__init__ gesetzt):
@@ -70,6 +72,8 @@ class ConfigHandlersMixin:
             self.config.get("pipeline_timeout_seconds", defaults["pipeline_timeout_seconds"])
         )
         self.face_yolo_confidence = self._get_face_yolo_confidence()
+        self.body_yolo_confidence = self._get_body_yolo_confidence()
+        self.body_padding_ratio = self._get_body_padding_ratio()
         self.animation_speed = int(self.config.get("animation_speed", defaults["animation_speed"]))
         self.is_fullscreen = bool(self.config.get("fullscreen", defaults["fullscreen"]))
         self.developer_mode = bool(self.config.get("developer_mode", defaults["developer_mode"]))
@@ -110,6 +114,26 @@ class ConfigHandlersMixin:
         except (TypeError, ValueError):
             return 0.5
 
+    def _get_body_yolo_confidence(self):
+        """Liest den Konfidenzwert fuer Body-YOLO aus der Config."""
+        face_yolo_cfg = self.config.get("face_yolo", {})
+        if isinstance(face_yolo_cfg, dict):
+            try:
+                return float(face_yolo_cfg.get("body_confidence", 0.35))
+            except (TypeError, ValueError):
+                pass
+        return 0.35
+
+    def _get_body_padding_ratio(self):
+        """Liest das Padding-Verhaeltnis fuer Body-Crops aus der Config."""
+        face_yolo_cfg = self.config.get("face_yolo", {})
+        if isinstance(face_yolo_cfg, dict):
+            try:
+                return float(face_yolo_cfg.get("body_padding_ratio", 0.12))
+            except (TypeError, ValueError):
+                pass
+        return 0.12
+
     def _update_pipeline_value(self, model_id, key, value):
         """
         Aktualisiert einen Wert im Pipeline-Eintrag eines Modells und speichert.
@@ -126,7 +150,7 @@ class ConfigHandlersMixin:
 
     def _update_pool_value(self, key, value):
         """
-        Aktualisiert einen Wert in der Pool-Config und lädt Pool-Einstellungen neu.
+        Aktualisiert einen Wert in der Pool-Config und meldet den Reload an die Pipeline.
         Der sofortige Reload stellt sicher, dass Änderungen im laufenden Betrieb wirken.
         """
         pool = self.config.setdefault("pool", {})
@@ -142,13 +166,10 @@ class ConfigHandlersMixin:
     # =========================================================
 
     def _reload_pool_settings(self):
-        """Signalisiert dem PipelineWorker, den Pool neu zu laden."""
+        """Signalisiert dem PipelineWorker, den zentralen Pool neu zu laden."""
         pipeline = getattr(self, "_pipeline", None)
         if pipeline is not None and hasattr(pipeline, "request_pool_reload"):
             pipeline.request_pool_reload()
-        pool_loader = getattr(self, "_pool_loader", None)
-        if pool_loader is not None and hasattr(pool_loader, "reload"):
-            pool_loader.reload(config_data=self.config)
 
     def _reload_pipeline_settings(self):
         """Signalisiert dem PipelineWorker, die Pipeline-Config neu zu laden."""
@@ -189,6 +210,8 @@ class ConfigHandlersMixin:
         self.admin_menu.animation_speed_changed.connect(self._on_animation_speed_changed)
         self.admin_menu.pipeline_timeout_changed.connect(self._on_pipeline_timeout_changed)
         self.admin_menu.face_yolo_confidence_changed.connect(self._on_face_yolo_confidence_changed)
+        self.admin_menu.body_yolo_confidence_changed.connect(self._on_body_yolo_confidence_changed)
+        self.admin_menu.body_padding_ratio_changed.connect(self._on_body_padding_ratio_changed)
         self.admin_menu.fullscreen_toggled.connect(self._on_fullscreen_toggled)
         self.admin_menu.developer_mode_toggled.connect(self._on_developer_mode_toggled)
         self.admin_menu.pool_enabled_changed.connect(self._on_pool_enabled_changed)
@@ -196,6 +219,7 @@ class ConfigHandlersMixin:
         self.admin_menu.pool_cooldown_changed.connect(self._on_pool_cooldown_changed)
         self.admin_menu.moondream_enabled_changed.connect(self._on_moondream_enabled)
         self.admin_menu.moondream_prompt_changed.connect(self._on_moondream_prompt)
+        self.admin_menu.moondream_crop_mode_changed.connect(self._on_moondream_crop_mode_changed)
         self.admin_menu.ollama_enabled_changed.connect(self._on_ollama_enabled)
         self.admin_menu.ollama_prompt_changed.connect(self._on_ollama_prompt)
         self.admin_menu.deepface_enabled_changed.connect(self._on_deepface_enabled)
@@ -234,6 +258,8 @@ class ConfigHandlersMixin:
                 "pipeline_timeout_seconds", defaults["pipeline_timeout_seconds"]
             ),
             "face_yolo_confidence": self._get_face_yolo_confidence(),
+            "body_yolo_confidence": self._get_body_yolo_confidence(),
+            "body_padding_ratio": self._get_body_padding_ratio(),
             "fullscreen": self.config.get("fullscreen", defaults["fullscreen"]),
             "developer_mode": self.config.get("developer_mode", defaults["developer_mode"]),
             "pool_enabled": pool.get("enabled", defaults["pool_enabled"]),
@@ -241,6 +267,9 @@ class ConfigHandlersMixin:
             "pool_cooldown_batches": pool.get("cooldown_batches", defaults["pool_cooldown_batches"]),
             "moondream_enabled": moondream.get("enabled", defaults["moondream_enabled"]),
             "moondream_prompt": moondream.get("prompt", defaults["moondream_prompt"]),
+            "moondream_crop_mode": self.config.get("face_yolo", {}).get(
+                "moondream_crop_mode", "face"
+            ),
             "ollama_enabled": ollama.get("enabled", defaults["ollama_enabled"]),
             "ollama_prompt": ollama.get("prompt", defaults["ollama_prompt"]),
             "deepface_enabled": deepface.get("enabled", defaults["deepface_enabled"]),
@@ -343,6 +372,26 @@ class ConfigHandlersMixin:
             del self.config["face_yolo_confidence"]
         self._save_config()
 
+    def _on_body_yolo_confidence_changed(self, value):
+        """Setzt den Konfidenzwert fuer Body-YOLO."""
+        self.body_yolo_confidence = max(0.10, min(0.90, float(value)))
+        face_yolo_cfg = self.config.setdefault("face_yolo", {})
+        if not isinstance(face_yolo_cfg, dict):
+            face_yolo_cfg = {}
+            self.config["face_yolo"] = face_yolo_cfg
+        face_yolo_cfg["body_confidence"] = round(self.body_yolo_confidence, 2)
+        self._save_config()
+
+    def _on_body_padding_ratio_changed(self, value):
+        """Setzt das Padding-Verhaeltnis fuer Body-Crops."""
+        self.body_padding_ratio = max(0.0, min(0.5, float(value)))
+        face_yolo_cfg = self.config.setdefault("face_yolo", {})
+        if not isinstance(face_yolo_cfg, dict):
+            face_yolo_cfg = {}
+            self.config["face_yolo"] = face_yolo_cfg
+        face_yolo_cfg["body_padding_ratio"] = round(self.body_padding_ratio, 2)
+        self._save_config()
+
     def _on_fullscreen_toggled(self, enabled):
         """Schaltet Vollbild ein/aus und speichert die Einstellung."""
         self._set_fullscreen(bool(enabled))
@@ -385,6 +434,17 @@ class ConfigHandlersMixin:
     def _on_moondream_prompt(self, text):
         """Aktualisiert den Beschreibungs-Prompt für Moondream."""
         self._update_pipeline_value(PipelineStage.MOONDREAM, "prompt", text)
+
+    def _on_moondream_crop_mode_changed(self, mode):
+        """Schaltet den Moondream-Crop-Modus zwischen face, body und body_seg um."""
+        face_yolo_cfg = self.config.setdefault("face_yolo", {})
+        if not isinstance(face_yolo_cfg, dict):
+            face_yolo_cfg = {}
+            self.config["face_yolo"] = face_yolo_cfg
+        if mode not in {"face", "body", "body_seg"}:
+            return
+        face_yolo_cfg["moondream_crop_mode"] = mode
+        self._save_config()
 
     def _on_ollama_enabled(self, enabled):
         """

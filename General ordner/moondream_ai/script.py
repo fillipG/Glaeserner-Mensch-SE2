@@ -91,9 +91,11 @@ while True:
         os.makedirs(OLLAMA_INBOX_DIR, exist_ok=True)
 
         # Scannt den Eingangsordner nach Bilddateien, die vom YOLO-Modell
-        # dort abgelegt wurden (Namensschema: face_0.jpg, face_1.jpg etc.).
+        # dort abgelegt wurden (Namensschema: face1.png oder batch123_face1.png).
         all_files = [f for f in os.listdir(INPUT_DIR) if f.lower().endswith((".jpg", ".jpeg", ".png"))]
-        valid_files = [f for f in all_files if re.match(r"^face\d+", f, re.IGNORECASE)]
+        valid_files = sorted(
+            [f for f in all_files if re.match(r"^(?:batch\d+_)?face\d+", f, re.IGNORECASE)]
+        )
     except Exception as exc:
         print(f"Fehler beim Ordner-Scan: {exc}")
         time.sleep(2)
@@ -101,7 +103,7 @@ while True:
 
     for filename in valid_files:
         img_path = os.path.join(INPUT_DIR, filename)
-        name_part = os.path.splitext(filename)[0]  # Extrahiert die ID, z.B. "face_0"
+        name_part = os.path.splitext(filename)[0]  # Extrahiert die ID, z.B. "face1" oder "batch123_face1"
 
         # Zieldatei für den nächsten Pipeline-Schritt (Ollama-Modell).
         yaml_filename = f"{name_part}_ollama.yaml"

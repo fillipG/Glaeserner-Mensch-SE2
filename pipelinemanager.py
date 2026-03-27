@@ -16,10 +16,10 @@ AUTOREN: Dennis Penner, FLorian Hoeft
 """
 
 import os
+import re
 import time
 import yaml
 import shutil
-import random
 from PyQt6.QtCore import QObject, pyqtSignal
 from service import TranslationService
 from path_service import get_paths
@@ -47,6 +47,7 @@ class PipelineManager(QObject):
         self.results_cache = {}
         self.collected_faces = []  # Liste der fertig verarbeiteten Personen-Objekte
         self.expected_face_count = 0  # Anzahl der Gesichter, die laut YOLO-Log zu erwarten sind
+        self.current_batch_id = None
         self.last_logged_face_count = None
         self.seen_files = set()  # Verhindert Doppelt-Verarbeitung derselben Datei
         self.last_log_signature = None  # Zeitstempel der faces_log.yaml zur Erkennung neuer Durchläufe
@@ -68,8 +69,9 @@ class PipelineManager(QObject):
                     log_data = yaml.safe_load(f) or {}
 
                 new_face_count = log_data.get("face_count", 0)
+                new_batch_id = str(log_data.get("batch_id", "")).strip() or None
                 # Signature prüft Dateialter und Inhalt -> erkennt neuen Foto-Vorgang
-                log_signature = (os.path.getmtime(log_path), new_face_count)
+                log_signature = (os.path.getmtime(log_path), new_batch_id, new_face_count)
                 # Ein neuer Batch kann denselben face_count wie der vorherige haben.
                 # Deshalb wird nicht nur auf die Anzahl, sondern auch auf die aktualisierte
                 # Log-Datei selbst geprueft.
@@ -78,6 +80,8 @@ class PipelineManager(QObject):
                     self.results_cache.clear()
                     self.collected_faces.clear()
                     self.seen_files.clear()
+                    self.current_batch_id = new_batch_id
+                    self.last_logged_face_count = None
                     self.last_log_signature = log_signature
 
                 self.expected_face_count = new_face_count
@@ -90,7 +94,7 @@ class PipelineManager(QObject):
                     self._handle_empty_batch()
                     return
 
-            # SCHRITT 2: Neue Ergebnis-Dateien der KIs (z.B. face1_deepface.yaml) verarbeiten
+            # SCHRITT 2: Neue Ergebnis-Dateien der KIs (z.B. batch123_face1_deepface.yaml) verarbeiten
             current_files = {f for f in os.listdir(self.watch_dir) if f.endswith(self.file_ext)}
             new_files = current_files - self.seen_files
 
@@ -114,8 +118,15 @@ class PipelineManager(QObject):
             if "_" not in name_no_ext:
                 return
 
-            # Extrahiere Personen-ID und Modell-Name (z.B. 'face_0' und 'deepface')
+            # Extrahiere Personen-ID und Modell-Name (z.B. 'batch123_face1' und 'deepface')
             base_id, model_id = name_no_ext.rsplit("_", 1)
+
+            # Verarbeitet nur Dateien des aktuell aktiven Foto-Batches.
+            # Spaete Ergebnisse alter Durchlaeufe duerfen nicht mit dem neuen faces_log
+            # kombiniert werden.
+            if self.current_batch_id and not str(base_id).startswith(f"{self.current_batch_id}_"):
+                print(f"[PIPELINE] Ignoriere veraltete Datei ausserhalb des aktuellen Batches: {file_name}")
+                return
 
             if base_id not in self.results_cache:
                 self.results_cache[base_id] = {}
@@ -157,8 +168,14 @@ class PipelineManager(QObject):
         # Text kommt entweder von Ollama oder Moondream
         description_data = captured_data.get(PipelineStage.OLLAMA) or captured_data.get(PipelineStage.MOONDREAM, {})
 
-        # Mapping der KI-Rohdaten auf das für die GUI benötigte Format
-        person_dict = self._build_person_dict(base_id, df_data, description_data)
+        # Liefert der GUI bereits den Sketch-Pfad mit, damit sie keine Batch-Logik
+        # noch einmal aus final/ rekonstruieren muss.
+        person_dict = self._build_person_dict(
+            base_id,
+            df_data,
+            description_data,
+            face_image_path=self._resolve_face_image_path(base_id),
+        )
         self.collected_faces.append(person_dict)
         print(f"--- [COLLECTED] {base_id} ({len(self.collected_faces)}/{self.expected_face_count}) ---")
 
@@ -187,6 +204,23 @@ class PipelineManager(QObject):
         if face_image_path:
             person_dict["face_image_path"] = face_image_path
         return person_dict
+
+    def _resolve_face_image_path(self, base_id):
+        """
+        Ermittelt den Sketch-Pfad einer echten erkannten Person aus ihrer face-ID.
+        Der Pfad wird nur zurückgegeben, wenn das Bild bereits auf dem Dateisystem liegt.
+        """
+        sketch_dir = os.fspath(self.paths["sketch_dir"])
+        exact_path = os.path.join(sketch_dir, f"{base_id}.png")
+        if os.path.exists(exact_path):
+            return exact_path
+
+        match = re.search(r"(\d+)$", str(base_id))
+        if match:
+            legacy_path = os.path.join(sketch_dir, f"face{int(match.group(1))}.png")
+            if os.path.exists(legacy_path):
+                return legacy_path
+        return None
 
     def _append_pool_people(self, personen_daten):
         """
@@ -268,6 +302,7 @@ class PipelineManager(QObject):
         self.results_cache.clear()
         self.collected_faces.clear()
         self.expected_face_count = 0
+        self.current_batch_id = None
         self.last_logged_face_count = None
         self.seen_files.clear()
         self.last_log_signature = None
@@ -410,5 +445,6 @@ class PipelineManager(QObject):
         self.results_cache.clear()
         self.collected_faces = []
         self.expected_face_count = 0
+        self.current_batch_id = None
         self.last_logged_face_count = None
         self.last_log_signature = None

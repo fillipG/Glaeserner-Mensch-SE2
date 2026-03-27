@@ -41,17 +41,39 @@ class DescriptionRepository:
         except (TypeError, ValueError):
             return None
 
+    def _current_batch_id(self):
+        """
+        Liest die aktuelle Batch-ID aus faces_log.yaml.
+        :return: Batch-ID als String oder None.
+        """
+        data = self.read_yaml("faces_log.yaml")
+        if not isinstance(data, dict):
+            return None
+        batch_id = str(data.get("batch_id", "")).strip()
+        return batch_id or None
+
     def list_face_indices(self):
         """
         Ermittelt alle im final-Ordner vorhandenen face-Indizes.
-        Beruecksichtigt nur echte Batch-Dateien wie face1_deepface.yaml.
+        Beruecksichtigt aktuelle Batch-Dateien wie batch123_face1_deepface.yaml
+        und faellt bei Bedarf auf das alte face1_deepface.yaml-Schema zurueck.
         """
         if not os.path.isdir(self.base_dir):
             return []
 
         indices = set()
+        batch_id = self._current_batch_id()
+        batch_pattern = None
+        if batch_id:
+            batch_pattern = re.compile(
+                rf"^{re.escape(batch_id)}_face(\d+)_(?:deepface|ollama|moondream)\.yaml$",
+                re.IGNORECASE,
+            )
+
         for file_name in os.listdir(self.base_dir):
-            match = re.match(r"^face(\d+)_(?:deepface|ollama|moondream)\.yaml$", file_name, re.IGNORECASE)
+            match = batch_pattern.match(file_name) if batch_pattern else None
+            if match is None:
+                match = re.match(r"^face(\d+)_(?:deepface|ollama|moondream)\.yaml$", file_name, re.IGNORECASE)
             if match:
                 indices.add(int(match.group(1)))
         return sorted(indices)
@@ -76,7 +98,7 @@ class DescriptionRepository:
         :param index: Personenindex ab 0.
         :return: Beschreibungstext oder None.
         """
-        return self._read_description_file(f"face{index + 1}_moondream.yaml")
+        return self._read_description_for_current_batch(index, "moondream")
 
     def read_ollama_description(self, index):
         """
@@ -84,7 +106,7 @@ class DescriptionRepository:
         :param index: Personenindex ab 0.
         :return: Beschreibungstext oder None.
         """
-        return self._read_description_file(f"face{index + 1}_ollama.yaml")
+        return self._read_description_for_current_batch(index, "ollama")
 
     def read_deepface_data(self, index):
         """
@@ -92,7 +114,39 @@ class DescriptionRepository:
         :param index: Personenindex ab 0.
         :return: Dictionary mit Deepface-Daten oder None.
         """
-        return self.read_yaml(f"face{index + 1}_deepface.yaml")
+        return self._read_yaml_for_current_batch(index, "deepface")
+
+    def _read_yaml_for_current_batch(self, index, model_name):
+        """
+        Liest zuerst die YAML des aktuellen Batches und faellt bei Bedarf
+        auf das alte faceN-Dateischema zurueck.
+        """
+        file_name = self._resolve_batch_file_name(index, model_name)
+        if file_name:
+            data = self.read_yaml(file_name)
+            if data is not None:
+                return data
+        return self.read_yaml(f"face{index + 1}_{model_name}.yaml")
+
+    def _read_description_for_current_batch(self, index, model_name):
+        """
+        Liest das description-Feld fuer aktuellen Batch oder Legacy-Dateinamen.
+        """
+        file_name = self._resolve_batch_file_name(index, model_name)
+        if file_name:
+            description = self._read_description_file(file_name)
+            if description:
+                return description
+        return self._read_description_file(f"face{index + 1}_{model_name}.yaml")
+
+    def _resolve_batch_file_name(self, index, model_name):
+        """
+        Baut den Dateinamen fuer den aktuell aktiven Batch auf.
+        """
+        batch_id = self._current_batch_id()
+        if not batch_id:
+            return None
+        return f"{batch_id}_face{index + 1}_{model_name}.yaml"
 
     def _read_description_file(self, file_name):
         """

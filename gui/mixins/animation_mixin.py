@@ -52,6 +52,10 @@ class AnimationMixin:
             "empty_result"     – Keine Person erkannt
         :param animated: True = Schließ-Video abspielen, False = sofort schließen.
         """
+        # Kamera frühzeitig im Worker vorwärmen, damit nach der Schließ-Animation
+        # schneller wieder ein Livebild statt eines langen schwarzen Platzhalters erscheint.
+        self.camera_prewarm_requested.emit()
+
         # Nur bei bewusstem Nutzer- oder System-Reset werden alte Dateien bereinigt.
         # Bei Fehlern (z.B. pipeline_timeout) ist die Bereinigung ebenfalls erwünscht,
         # damit der nächste Durchlauf sauber startet.

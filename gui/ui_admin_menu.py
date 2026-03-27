@@ -5,7 +5,8 @@ Autor: Fillip Giffhorn und Florian Höft
 """
 
 from PyQt6.QtWidgets import (QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-                             QSlider, QCheckBox, QLineEdit, QScrollArea, QSizePolicy, QComboBox)
+                             QSlider, QCheckBox, QLineEdit, QScrollArea, QSizePolicy, QComboBox,
+                             QRadioButton)
 from PyQt6.QtGui import QFont, QIntValidator
 from PyQt6.QtCore import Qt, pyqtSignal
 
@@ -18,6 +19,8 @@ class AdminMenu(QFrame):
     animation_speed_changed = pyqtSignal(int)
     pipeline_timeout_changed = pyqtSignal(int)
     face_yolo_confidence_changed = pyqtSignal(float)
+    body_yolo_confidence_changed = pyqtSignal(float)
+    body_padding_ratio_changed = pyqtSignal(float)
     fullscreen_toggled = pyqtSignal(bool)
     developer_mode_toggled = pyqtSignal(bool)
     pool_enabled_changed = pyqtSignal(bool)
@@ -25,6 +28,7 @@ class AdminMenu(QFrame):
     pool_cooldown_changed = pyqtSignal(int)
     moondream_enabled_changed = pyqtSignal(bool)
     moondream_prompt_changed = pyqtSignal(str)
+    moondream_crop_mode_changed = pyqtSignal(str)
     ollama_enabled_changed = pyqtSignal(bool)
     ollama_prompt_changed = pyqtSignal(str)
     deepface_enabled_changed = pyqtSignal(bool)
@@ -49,6 +53,9 @@ class AdminMenu(QFrame):
         self._face_yolo_min = 0.10
         self._face_yolo_max = 0.90
         self._face_yolo_step = 0.05
+        self._body_padding_min = 0.00
+        self._body_padding_max = 0.50
+        self._body_padding_step = 0.01
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setStyleSheet(
             "background-color: rgba(45, 35, 25, 245);"
@@ -165,6 +172,42 @@ class AdminMenu(QFrame):
         face_yolo_hint.setWordWrap(True)
         general_layout.addWidget(face_yolo_hint)
 
+        self.body_yolo_confidence_label = QLabel("Body-YOLO Confidence")
+        self.body_yolo_confidence_value = QLabel("0.35")
+        self.body_yolo_confidence_slider = self._create_slider(10, 90)
+        self.body_yolo_confidence_slider.setSingleStep(5)
+        self.body_yolo_confidence_slider.setPageStep(5)
+        self.body_yolo_confidence_slider.valueChanged.connect(self._on_body_yolo_confidence_changed)
+        general_layout.addLayout(
+            self._slider_row(
+                self.body_yolo_confidence_label,
+                self.body_yolo_confidence_slider,
+                self.body_yolo_confidence_value
+            )
+        )
+
+        self.body_padding_label = QLabel("Body-Crop Padding")
+        self.body_padding_value = QLabel("0.12")
+        self.body_padding_slider = self._create_slider(0, 50)
+        self.body_padding_slider.setSingleStep(1)
+        self.body_padding_slider.setPageStep(5)
+        self.body_padding_slider.valueChanged.connect(self._on_body_padding_ratio_changed)
+        general_layout.addLayout(
+            self._slider_row(
+                self.body_padding_label,
+                self.body_padding_slider,
+                self.body_padding_value
+            )
+        )
+
+        body_yolo_hint = QLabel(
+            "Nur relevant fuer Body-/Seg-Crops\n"
+            "Confidence steuert Personenerkennung, Padding vergroessert den Koerper-Crop"
+        )
+        body_yolo_hint.setStyleSheet("color: rgba(244, 228, 188, 150); font-size: 12px;")
+        body_yolo_hint.setWordWrap(True)
+        general_layout.addWidget(body_yolo_hint)
+
         layout.addWidget(general_box)
 
         layout.addWidget(self._section_title("GRAFIK"))
@@ -231,7 +274,7 @@ class AdminMenu(QFrame):
         models_box = self._create_group_box()
         models_layout = QVBoxLayout(models_box)
 
-        self.moondream_enabled, self.moondream_prompt, _ = self._create_model_block(
+        self.moondream_enabled, self.moondream_prompt, moondream_layout = self._create_model_block(
             models_layout, "Moondream", has_prompt=True
         )
         self.moondream_enabled.toggled.connect(self.moondream_enabled_changed)
@@ -241,6 +284,38 @@ class AdminMenu(QFrame):
             "QCheckBox:disabled { color: rgba(244, 228, 188, 120); }"
         )
         self.moondream_prompt.editingFinished.connect(self._on_moondream_prompt_changed)
+
+        # Moondream kann im Admin-Menue zwischen Face-, Body- und Segmentation-Crop umgeschaltet werden.
+        # Der Entwicklermodus "shadow" bleibt absichtlich nur in der config.yaml sichtbar.
+        crop_mode_label = QLabel("Moondream Bildquelle")
+        moondream_layout.addWidget(crop_mode_label)
+        self.moondream_crop_face = QRadioButton("Gesicht (Face-Crop)")
+        self.moondream_crop_body = QRadioButton("Koerper (YOLO Box-Crop)")
+        self.moondream_crop_body_seg = QRadioButton("Koerper (YOLO-Seg freigestellt)")
+        self.moondream_crop_face.setStyleSheet("QRadioButton { font-size: 14px; }")
+        self.moondream_crop_body.setStyleSheet("QRadioButton { font-size: 14px; }")
+        self.moondream_crop_body_seg.setStyleSheet("QRadioButton { font-size: 14px; }")
+        self.moondream_crop_face.setToolTip(
+            "Face-YOLO liefert einen klassischen Gesichts-Crop fuer Moondream."
+        )
+        self.moondream_crop_body.setToolTip(
+            "YOLO Person-Detection liefert einen rechteckigen Koerper-Crop inklusive Rest-Hintergrund."
+        )
+        self.moondream_crop_body_seg.setToolTip(
+            "YOLO Segmentation stellt die Person pixelgenau frei und setzt den Hintergrund weiss."
+        )
+        self.moondream_crop_face.toggled.connect(
+            lambda checked: self.moondream_crop_mode_changed.emit("face") if checked else None
+        )
+        self.moondream_crop_body.toggled.connect(
+            lambda checked: self.moondream_crop_mode_changed.emit("body") if checked else None
+        )
+        self.moondream_crop_body_seg.toggled.connect(
+            lambda checked: self.moondream_crop_mode_changed.emit("body_seg") if checked else None
+        )
+        moondream_layout.addWidget(self.moondream_crop_face)
+        moondream_layout.addWidget(self.moondream_crop_body)
+        moondream_layout.addWidget(self.moondream_crop_body_seg)
 
         self.ollama_enabled, self.ollama_prompt, _ = self._create_model_block(
             models_layout, "Ollama", has_prompt=True
@@ -513,6 +588,24 @@ class AdminMenu(QFrame):
         self.face_yolo_confidence_value.setText(f"{value:.2f}")
         self.face_yolo_confidence_changed.emit(value)
 
+    def _on_body_yolo_confidence_changed(self, slider_value):
+        """
+        Reagiert auf Aenderungen der Body-YOLO-Confidence.
+        :param slider_value: Sliderwert zwischen 10 und 90.
+        """
+        value = slider_value / 100.0
+        self.body_yolo_confidence_value.setText(f"{value:.2f}")
+        self.body_yolo_confidence_changed.emit(value)
+
+    def _on_body_padding_ratio_changed(self, slider_value):
+        """
+        Reagiert auf Aenderungen des Body-Crop-Paddings.
+        :param slider_value: Sliderwert zwischen 0 und 50.
+        """
+        value = slider_value / 100.0
+        self.body_padding_value.setText(f"{value:.2f}")
+        self.body_padding_ratio_changed.emit(value)
+
     def _on_fullscreen_toggled(self, checked):
         """
         Reagiert auf Vollbild-Umschaltung.
@@ -664,6 +757,20 @@ class AdminMenu(QFrame):
         self.face_yolo_confidence_value.setText(
             f"{self.face_yolo_confidence_slider.value() / 100.0:.2f}"
         )
+        self._set_slider_value(
+            self.body_yolo_confidence_slider,
+            self._face_yolo_to_slider_value(float(settings.get("body_yolo_confidence", 0.35)))
+        )
+        self.body_yolo_confidence_value.setText(
+            f"{self.body_yolo_confidence_slider.value() / 100.0:.2f}"
+        )
+        self._set_slider_value(
+            self.body_padding_slider,
+            self._body_padding_to_slider_value(float(settings.get("body_padding_ratio", 0.12)))
+        )
+        self.body_padding_value.setText(
+            f"{self.body_padding_slider.value() / 100.0:.2f}"
+        )
 
         self._set_toggle_button(self.fullscreen_button, settings.get("fullscreen", True))
         self.fullscreen_button.setText("Vollbild: AN" if self.fullscreen_button.isChecked() else "Vollbild: AUS")
@@ -690,6 +797,7 @@ class AdminMenu(QFrame):
         self.moondream_enabled.setEnabled(False)
         if self.moondream_prompt is not None:
             self._set_lineedit_value(self.moondream_prompt, settings.get("moondream_prompt", ""))
+        self._set_moondream_crop_mode(settings.get("moondream_crop_mode", "face"))
         self._set_checkbox_value(self.ollama_enabled, settings.get("ollama_enabled", True))
         if self.ollama_prompt is not None:
             self._set_lineedit_value(self.ollama_prompt, settings.get("ollama_prompt", ""))
@@ -728,6 +836,16 @@ class AdminMenu(QFrame):
         step_index = round((clamped - self._face_yolo_min) / self._face_yolo_step)
         return int(round((self._face_yolo_min + step_index * self._face_yolo_step) * 100))
 
+    def _body_padding_to_slider_value(self, value):
+        """
+        Quantisiert ein Body-Padding-Ratio auf den Sliderbereich.
+        :param value: Body-Crop-Padding als Float.
+        :return: Passender Integer-Sliderwert.
+        """
+        clamped = max(self._body_padding_min, min(self._body_padding_max, float(value)))
+        step_index = round((clamped - self._body_padding_min) / self._body_padding_step)
+        return int(round((self._body_padding_min + step_index * self._body_padding_step) * 100))
+
     def _set_toggle_button(self, button, checked):
         """
         Setzt den Zustand eines Toggle-Buttons signalfrei.
@@ -747,6 +865,32 @@ class AdminMenu(QFrame):
         checkbox.blockSignals(True)
         checkbox.setChecked(bool(checked))
         checkbox.blockSignals(False)
+
+    def _set_moondream_crop_mode(self, mode):
+        """
+        Setzt die sichtbare Moondream-Bildquelle ohne Signale.
+        Shadow bleibt absichtlich unsichtbar und setzt die Radio-Buttons zurueck.
+        :param mode: "face", "body", "body_seg" oder ein interner Entwicklermodus wie "shadow".
+        """
+        self.moondream_crop_face.blockSignals(True)
+        self.moondream_crop_body.blockSignals(True)
+        self.moondream_crop_body_seg.blockSignals(True)
+        self.moondream_crop_face.setAutoExclusive(False)
+        self.moondream_crop_body.setAutoExclusive(False)
+        self.moondream_crop_body_seg.setAutoExclusive(False)
+        self.moondream_crop_face.setChecked(mode == "face")
+        self.moondream_crop_body.setChecked(mode == "body")
+        self.moondream_crop_body_seg.setChecked(mode == "body_seg")
+        if mode not in {"face", "body", "body_seg"}:
+            self.moondream_crop_face.setChecked(False)
+            self.moondream_crop_body.setChecked(False)
+            self.moondream_crop_body_seg.setChecked(False)
+        self.moondream_crop_face.setAutoExclusive(True)
+        self.moondream_crop_body.setAutoExclusive(True)
+        self.moondream_crop_body_seg.setAutoExclusive(True)
+        self.moondream_crop_face.blockSignals(False)
+        self.moondream_crop_body.blockSignals(False)
+        self.moondream_crop_body_seg.blockSignals(False)
 
     def _set_lineedit_value(self, lineedit, text):
         """

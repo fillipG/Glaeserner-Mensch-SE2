@@ -208,10 +208,11 @@ while True:
         PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
         files = os.listdir(INPUT_DIR)
         # Der Worker reagiert nur auf vollstaendig von Moondream geschriebene Zwischen-YAMLs.
-        valid_files = [
+        valid_files = sorted([
             file_name for file_name in files
-            if file_name.lower().endswith(".yaml") and re.match(r"^face\d+_ollama\.yaml$", file_name, re.IGNORECASE)
-        ]
+            if file_name.lower().endswith(".yaml")
+            and re.match(r"^(?:batch\d+_)?face\d+_ollama\.yaml$", file_name, re.IGNORECASE)
+        ])
     except Exception as exc:
         print(f"[OLLAMA] Fehler beim Scan: {exc}")
         time.sleep(2)

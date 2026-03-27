@@ -87,10 +87,10 @@ while True:
     # 2. Eingangsordner nach Bildern scannen
     try:
         files = os.listdir(INPUT_DIR)
-        valid_files = [
+        valid_files = sorted([
             f for f in files
             if f.lower().endswith((".png", ".jpg", ".jpeg", ".webp"))
-        ]
+        ])
     except Exception as e:
         print(f"Fehler beim Scan: {e}")
         time.sleep(2)

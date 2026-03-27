@@ -40,7 +40,6 @@ from sketch import create_advanced_sketch
 from service import TranslationService
 from config_service import ConfigService
 from statistics_service import StatisticsService
-from pool_loader import PoolLoader
 from .description_repository import DescriptionRepository
 from .gui_constants import SCENE_WIDTH, SCENE_HEIGHT, PATHS
 from .gui_state import GUIState
@@ -88,9 +87,11 @@ class ScalingAkteGUI(
 
     Signale:
         folder_closed()                    → YOLOWorker: Kamera wieder starten
+        camera_prewarm_requested()         → YOLOWorker: Kamera im Hintergrund vorwärmen
         presence_monitoring_requested()    → YOLOWorker: Anwesenheits-Modus
     """
     folder_closed                  = pyqtSignal()  # Akte geschlossen → YOLOWorker fortsetzen
+    camera_prewarm_requested       = pyqtSignal()  # Akte schließt → Kamera im Hintergrund öffnen
     presence_monitoring_requested  = pyqtSignal()  # Akte offen → Anwesenheit überwachen
 
     def __init__(self):
@@ -161,7 +162,6 @@ class ScalingAkteGUI(
             enabled=bool(stats_cfg.get("enabled", True)),
             retention_days=int(stats_cfg.get("retention_days", 365)),
         )
-        self._pool_loader = PoolLoader("config.yaml", config_data=self.config)
 
         # ── Timer ─────────────────────────────────────────────────────────────
         # Foto-Countdown (CircularTimerItem vor dem Öffnen der Mappe)
@@ -266,75 +266,6 @@ class ScalingAkteGUI(
         }
         return mapping.get(str(emotion).lower().strip(), "MITTEL")
 
-    def _build_person_dict_from_final(self, face_index):
-        """
-        Baut ein GUI-Personenobjekt direkt aus den YAML-Dateien im final-Ordner.
-        """
-        deepface_data = self.description_repo.read_deepface_data(face_index - 1) or {}
-        from constants import PipelineStage
-        ollama_enabled = bool((self._get_pipeline_entry(PipelineStage.OLLAMA) or {}).get("enabled", False))
-        if ollama_enabled:
-            description = self.description_repo.read_ollama_description(face_index - 1)
-        else:
-            description = self.description_repo.read_moondream_description(face_index - 1)
-
-        sketch_path = os.path.join(PATHS["sketch_dir"], f"face{face_index}.png")
-        return {
-            "titel": f"ID: FACE{face_index}",
-            "geschlecht": deepface_data.get("Geschlecht", "Unbekannt"),
-            "augen": "Braun",
-            "stimmung": deepface_data.get("Emotion", "Neutral"),
-            "alter": str(deepface_data.get("Alter", "N/A")),
-            "gefahr": self._calculate_danger(deepface_data.get("Emotion", "Neutral")),
-            "beschreibung": description or "Keine Beschreibung gefunden.",
-            "face_image_path": sketch_path if os.path.exists(sketch_path) else None,
-            "source": "real",
-        }
-
-    def _append_pool_people(self, personen_daten):
-        """
-        Fuellt echte Personen bei Bedarf mit Pool-Personen auf, damit 4 Akten
-        angezeigt werden koennen.
-        """
-        real_count = len(personen_daten)
-        if real_count == 0 or real_count >= 4:
-            return personen_daten
-
-        pool_selection = self._pool_loader.get_pool_persons(4 - real_count)
-        for pool_person in pool_selection:
-            deepface_data = pool_person.get("deepface", {})
-            description_data = pool_person.get("ollama", {})
-            personen_daten.append({
-                "titel": f"ID: {str(pool_person.get('face_id', 'pool')).upper()}",
-                "geschlecht": deepface_data.get("Geschlecht", "Unbekannt"),
-                "augen": "Braun",
-                "stimmung": deepface_data.get("Emotion", "Neutral"),
-                "alter": str(deepface_data.get("Alter", "N/A")),
-                "gefahr": self._calculate_danger(deepface_data.get("Emotion", "Neutral")),
-                "beschreibung": description_data.get("description", "Keine Beschreibung gefunden."),
-                "face_image_path": pool_person.get("face_image_path"),
-                "source": pool_person.get("source", "pool"),
-            })
-
-        for index, person in enumerate(personen_daten, start=1):
-            person["titel"] = f"ID: FACE{index}"
-        return personen_daten
-
-    def _load_person_data_from_final(self):
-        """
-        Liest die Anzeige-Daten direkt aus dem final-Ordner.
-        Der Pipeline-Thread dient hier nur noch als Synchronisationssignal, dass
-        der Batch vollstaendig vorliegt.
-        """
-        expected_face_count = self.description_repo.read_faces_log_count()
-        if expected_face_count and expected_face_count > 0:
-            face_indices = list(range(1, expected_face_count + 1))
-        else:
-            face_indices = self.description_repo.list_face_indices()
-
-        personen_daten = [self._build_person_dict_from_final(face_index) for face_index in face_indices]
-        return self._append_pool_people(personen_daten)
-
     # =========================================================
     # Pipeline-Ergebnis verarbeiten
     # =========================================================
@@ -363,7 +294,10 @@ class ScalingAkteGUI(
         real_face_count = self.description_repo.read_faces_log_count() or 0
         self._stats_svc.record_session(real_face_count, developer_mode=self.developer_mode)
         self._auto_close_monitoring_pending = True
-        self.handle_new_dataset(self._load_person_data_from_final())
+        # Die Pipeline liefert bereits den vollständigen Batch inklusive Pool-Personen
+        # und Bildpfaden. Die GUI zeigt diese Daten direkt an, statt sie nochmals aus
+        # final/ zusammenzubauen.
+        self.handle_new_dataset(personen_daten)
 
     @pyqtSlot(list)
     def handle_new_dataset(self, personen_daten):

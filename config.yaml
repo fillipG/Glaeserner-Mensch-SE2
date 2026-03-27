@@ -16,6 +16,13 @@ live_deepface:
 fullscreen: true
 face_yolo:
   confidence: 0.5
+  max_faces: 4
+  moondream_crop_mode: body_seg
+  body_confidence: 0.43
+  body_padding_ratio: 0.12
+  body_fallback_to_face: true
+  body_matching_required: false
+  debug_matching: true
 pool:
   enabled: true
   path: ./pool
@@ -36,7 +43,9 @@ pipeline:
   watch_dir: ./General ordner/ollama_ai/ollama_inbox
   file_ext: .yaml
   show_preview: true
-  prompt: Name the clothing and any accessories the person is wearing. Put in 4 Sentences
+  prompt: Describe this person in 4 sentences as if writing a surveillance report.
+    Include their clothing, accessories, body posture, and any suspicious or notable
+    moveements.
 - id: ollama
   name: Kriminalgeschichte (Ollama)
   enabled: true
@@ -45,7 +54,8 @@ pipeline:
   file_ext: .yaml
   prompt: 'Write a criminal report about a fictional person.
 
-    The person has already been described. Write only what crime
+    The person has already been described including their appearance, clothing and
+    body language. Write only what crime
 
     the person might have committed in a short flowing paragraph.
 

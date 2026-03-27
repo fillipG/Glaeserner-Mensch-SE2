@@ -112,6 +112,7 @@ def run_app():
     yolo_thread.startup_error.connect(
         lambda message: QMessageBox.critical(window, "YOLO-Start fehlgeschlagen", message)
     )
+    window.camera_prewarm_requested.connect(yolo_thread.request_camera_prewarm)
     window.folder_closed.connect(yolo_thread.start_capture_mode)
     window.presence_monitoring_requested.connect(yolo_thread.start_presence_monitoring)
 

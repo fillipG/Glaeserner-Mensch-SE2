@@ -1,17 +1,4 @@
 services:
-  body-extraction:
-    build: ./docker-compose-Body-Yolo
-    image: museum-yolo-body
-    container_name: yolo_body
-    volumes:
-      - ./docker-compose-Body-Yolo:/app
-      - ./main_image:/app/main_image
-      - ./body_yolo:/app/body_yolo
-      - ./models_cache/rembg:/root/.u2net
-      - ./models_cache/yolo:/app/models
-    environment:
-      - PYTHONUNBUFFERED=1
-
   face-extraction:
     build: ./docker-compose-face-Yolo
     image: museum-yolo-face

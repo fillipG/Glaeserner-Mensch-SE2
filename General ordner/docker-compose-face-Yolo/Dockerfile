@@ -23,6 +23,16 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
 # 6. Projektdateien kopieren
+# Body-YOLO: yolov8n.pt wird fuer die Person-Erkennung benoetigt.
+# Dieses Modell wird nur geladen wenn moondream_crop_mode in config.yaml
+# auf "body" oder "shadow" gesetzt ist.
+# Wenn Body-YOLO nicht benoetigt wird oder Performance-Probleme auftreten:
+# 1. moondream_crop_mode: face in config.yaml setzen
+# 2. oder diese Zeile auskommentieren und den Container neu bauen:
+COPY yolov8n.pt .
+# Segmentation-Modell fuer body_seg Modus
+# Um body_seg zu deaktivieren: diese Zeile auskommentieren und Container neu bauen
+COPY yolov8n-seg.pt .
 COPY . .
 
 # 8. Startbefehl

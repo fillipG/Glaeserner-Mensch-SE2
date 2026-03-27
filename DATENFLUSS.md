@@ -1,505 +1,506 @@
-# Datenfluss — Gläserner Mensch
+# Datenfluss - Glaeserner Mensch
 
-Vollständige Beschreibung des Programmdurchlaufs von Start bis Mappe-Schließen.
+Vollstaendige Beschreibung des aktuellen Programmdurchlaufs von Start bis Mappe-Schliessen.
 
 ---
 
-## Übersicht
+## Uebersicht
 
-```
+```text
 Programmstart
-    │
-    ▼
-Kamera-Scan (IDLE)          ← Live-Preview in GUI
-    │
-    │  Person erkannt + Countdown abgelaufen
-    ▼
-Foto auslösen               → General ordner/main_image/face_trigger.jpg
-    │
-    ▼
+    |
+    v
+Kamera-Scan (IDLE) <- Live-Preview in GUI
+    |
+    |  Person erkannt + Countdown abgelaufen
+    v
+Foto ausloesen -> General ordner/main_image/face_trigger.jpg
+    |
+    v
 Docker: Face-YOLO
-    ├── schreibt General ordner/final/faces_log.yaml
-    ├── schreibt General ordner/sketch/face1.png
-    ├── schreibt General ordner/docker-compose-deepface/deepface_inbox/face1.png
-    └── schreibt General ordner/moondream_ai/moondream_inbox/face1.png
-    │
-    ├──► Docker: DeepFace    liest deepface_inbox/, schreibt final/face1_deepface.yaml
-    ├──► Docker: Moondream   liest moondream_inbox/, schreibt ollama_inbox/face1_ollama.yaml
-    └──► Lokal:  Ollama      liest ollama_inbox/, schreibt final/face1_ollama.yaml
-    │
-    ▼
-PipelineManager scannt final/ alle 0,5s
-    │
-    │  Alle KI-Ergebnisse für alle Gesichter vollständig
-    ▼
-Batch vollständig → Signal an GUI
-    │
-    ▼
-GUI liest Anzeige-Daten direkt aus General ordner/final
-    │
-    ▼
-Öffnungs-Animation (open_animation.mp4)
-    │
-    ▼
-Mappe offen — Personen-Akten angezeigt
-    │
-    ├── Auto-Close (Person weg)
-    ├── Reset-Button (Nutzer)
-    └── Pipeline-Timeout (KI zu langsam)
-    │
-    ▼
-Schließ-Animation (close_animation.mp4)
-    │
-    ▼
-Geschlossener Ordner — Kamera läuft wieder  (→ zurück zu Kamera-Scan)
+    |-- schreibt General ordner/final/faces_log.yaml
+    |-- schreibt General ordner/sketch/batch123_face1.png
+    |-- schreibt General ordner/docker-compose-deepface/deepface_inbox/batch123_face1.png
+    `-- schreibt General ordner/moondream_ai/moondream_inbox/batch123_face1.png
+    |
+    |--> Docker: DeepFace  -> final/batch123_face1_deepface.yaml
+    |--> Docker: Moondream -> ollama_inbox/batch123_face1_ollama.yaml
+    `--> Lokal: Ollama     -> final/batch123_face1_ollama.yaml
+    |
+    v
+PipelineManager scannt final/
+    |
+    |  Batch vollstaendig
+    v
+GUI uebernimmt fertigen Batch direkt aus der Pipeline
+    |
+    v
+Oeffnungs-Animation
+    |
+    v
+Mappe offen - Personen-Akten angezeigt
+    |
+    |-- Auto-Close
+    |-- Reset
+    `-- Pipeline-Timeout
+    |
+    v
+Schliess-Animation
+    |
+    |-- Kamera-Prewarm im Hintergrund
+    v
+Geschlossener Ordner - Kamera laeuft wieder
 ```
 
 ---
 
-## Phase 1 — Programmstart
+## Phase 1 - Programmstart
 
 **Einstiegspunkt:** `py -3.10 main.py`
 
-### 1.1 YOLO-Modell vorbereitenieren
-```
+### 1.1 YOLO-Modell vorbereiten
+
+```text
 main.py: run_app()
-    └── YOLOWorker.prepare()
-            ├── ultralytics YOLO("yolov8n-pose.pt") laden
-            ├── PersonPhotoCapture(model, photo_delay) initialisieren
-            └── os.makedirs(path_service["main_image"])
+    `-- YOLOWorker.prepare()
+            |-- ultralytics YOLO("yolov8n-pose.pt") laden
+            |-- PersonPhotoCapture(model, photo_delay) initialisieren
+            `-- os.makedirs(path_service["main_image"])
 ```
-Das Modell wird absichtlich **vor** dem GUI-Start geladen, damit der Ladevorgang
-nicht die Qt-Eventschleife blockiert.
+
+Das Modell wird bewusst vor dem GUI-Start geladen, damit Ladefehler sofort sichtbar sind.
 
 ### 1.2 GUI starten
-```
+
+```text
 main.py
-    └── ScalingAkteGUI()
-            ├── Alle Zustandsvariablen, Timer, Sounds initialisieren
-            ├── ConfigService laden (config.yaml → Standardwerte schreiben falls leer)
-            └── show_closed_folder()  → Kamera-Preview-Bildschirm aufbauen
+    `-- ScalingAkteGUI()
+            |-- Zustandsvariablen, Timer, Sounds initialisieren
+            |-- ConfigService laden
+            `-- show_closed_folder() -> geschlossenen Ordner aufbauen
 ```
 
 ### 1.3 Startup-Cleanup
-```
+
+```text
 main.py
-    └── path_service.get_paths() → alle 6 Ordner leeren:
-            ├── General ordner/final/
-            ├── General ordner/main_image/
-            ├── General ordner/sketch/
-            ├── General ordner/ollama_ai/ollama_inbox/
-            ├── General ordner/docker-compose-deepface/deepface_inbox/
-            └── General ordner/moondream_ai/moondream_inbox/
+    `-- path_service.get_paths() -> Ordner leeren:
+            |-- General ordner/final/
+            |-- General ordner/main_image/
+            |-- General ordner/sketch/
+            |-- General ordner/ollama_ai/ollama_inbox/
+            |-- General ordner/docker-compose-deepface/deepface_inbox/
+            `-- General ordner/moondream_ai/moondream_inbox/
 ```
-**Warum:** KI-Docker-Container schreiben YAML-Dateien in diese Ordner.
-Ohne Cleanup würden Ergebnisse vom letzten Programmstart beim nächsten Start
-fälschlich als neue Ergebnisse erkannt werden.
+
+Ohne dieses Cleanup koennten alte KI-Ergebnisse beim Neustart als neue Daten erkannt werden.
 
 ### 1.4 Lokale Worker starten
-```
+
+```text
 main.py
-    └── LocalWorkerManager.start_ollama_worker()
-            ├── is_ollama_enabled() → config.yaml prüfen
-            ├── _ensure_ollama_ready(model_name)
-            │       ├── Python-Paket "ollama" vorhanden?
-            │       ├── API http://127.0.0.1:11434 erreichbar?
-            │       │       └── Falls nicht: "ollama serve" starten, 15s warten
-            │       └── Modell (z.B. "qwen2.5:3b") lokal vorhanden?
-            └── subprocess.Popen("workers/ollama_worker.py")
-                    → läuft als eigenständiger Python-Prozess im Hintergrund
+    `-- LocalWorkerManager.start_ollama_worker()
+            |-- is_ollama_enabled() pruefen
+            |-- _ensure_ollama_ready(model_name)
+            `-- subprocess.Popen("workers/ollama_worker.py")
 ```
 
 ### 1.5 PipelineWorker starten
-```
+
+```text
 main.py
-    └── PipelineWorker (QThread)
-            ├── PoolLoader("config.yaml") laden  → liest ./pool/ Verzeichnis
-            ├── PipelineManager(config_data, pool_loader) erstellen
-            │       ├── path_service.get_paths() → Ordnerpfade
-            │       ├── reload_config() → enabled_models, watch_dir, required_ids bestimmen
-            │       └── os.makedirs(watch_dir)
-            └── data_finalized Signal → result_ready Signal weiterleiten
+    `-- PipelineWorker (QThread)
+            |-- PoolLoader("config.yaml") laden
+            |-- PipelineManager(config_data, pool_loader) erstellen
+            `-- data_finalized -> result_ready weiterleiten
 ```
 
-### 1.6 YOLOWorker starten + Signale verdrahten
-```
-main.py  (Signal-Verdrahtung)
-    ├── yolo.frame_ready            → gui.on_camera_frame
-    ├── yolo.person_presence_changed → gui.on_person_presence_changed
-    ├── yolo.photo_done             → gui.show_loading_indicator
-    ├── gui.folder_closed           → yolo.start_capture_mode
-    └── gui.presence_monitoring_requested → yolo.start_presence_monitoring
+### 1.6 YOLOWorker starten und Signale verdrahten
+
+```text
+main.py
+    |-- yolo.frame_ready -> gui.on_camera_frame
+    |-- yolo.person_presence_changed -> gui.on_person_presence_changed
+    |-- yolo.photo_done -> gui.show_loading_indicator
+    |-- gui.camera_prewarm_requested -> yolo.request_camera_prewarm
+    |-- gui.folder_closed -> yolo.start_capture_mode
+    `-- gui.presence_monitoring_requested -> yolo.start_presence_monitoring
 ```
 
 ---
 
-## Phase 2 — Kamera-Scan (IDLE)
+## Phase 2 - Kamera-Scan (IDLE)
 
 **Zustand:** `YOLOWorker.state = IDLE`, `GUIState.IDLE`
 
-```
+```text
 YOLOWorker.run()  [QThread]
-    └── Endlosschleife:
-            ├── config.yaml neu einlesen (photo_delay, language)
-            └── PersonPhotoCapture.capture_mode()
-                    ├── Kamera öffnen (cv2.VideoCapture, Index 0/1/2)
-                    ├── Frame lesen
-                    ├── YOLO-Inferenz → Personen-Bounding-Boxes + Keypoints
-                    ├── frame_ready.emit(frame) → GUI zeigt Live-Preview
-                    │
-                    ├── Person erkannt?
-                    │   ├── NEIN → Weiter zur nächsten Runde
-                    │   └── JA  → Countdown starten (photo_delay Sekunden)
-                    │               ├── Person muss PERSON_LOST_TOLERANCE (1.5s) im Frame bleiben
-                    │               ├── frame_ready weiter senden → GUI-Countdown-Animation
-                    │               └── Countdown = 0 → Frame zurückgeben
-                    │
-                    └── Captured-Frame = gespeichertes Foto
+    `-- Endlosschleife:
+            |-- config.yaml neu einlesen
+            `-- PersonPhotoCapture.capture_mode()
+                    |-- Kamera oeffnen (cv2.VideoCapture, Index 0/1/2)
+                    |-- Frame lesen
+                    |-- YOLO-Inferenz -> Personen-Keypoints
+                    |-- frame_ready.emit(frame) -> GUI zeigt Live-Preview
+                    |
+                    |-- Person erkannt?
+                    |   |-- NEIN -> naechste Runde
+                    |   `-- JA -> Countdown starten
+                    |           |-- Person muss stabil im Bild bleiben
+                    |           |-- frame_ready weiter senden
+                    |           `-- Countdown = 0 -> Frame zurueckgeben
+                    |
+                    `-- Captured-Frame = gespeichertes Foto
 ```
 
-**GUI (parallel):**
-```
+**GUI parallel:**
+
+```text
 on_camera_frame(frame)
-    └── CameraMixin._filter_preview_faces()
-            ├── LiveDeepFaceService (optional): Gesichter live analysieren
-            └── camera_pixmap_item.setPixmap() → Live-Bild in Szene aktualisieren
+    `-- CameraMixin
+            |-- Haar-Cascade fuer Preview-Gesichter
+            |-- LiveDeepFaceService optional
+            `-- camera_pixmap_item.setPixmap()
 ```
 
 ---
 
-## Phase 3 — Foto auslösen
+## Phase 3 - Foto ausloesen
 
-```
+```text
 YOLOWorker (nach Countdown)
-    ├── cv2.imwrite("General ordner/main_image/face_trigger.jpg", frame)
-    ├── start_analyzing_mode()  → state = ANALYZING (Kamera schläft: 0.1s Loop)
-    └── photo_done.emit()  → GUI: show_loading_indicator()
+    |-- cv2.imwrite("General ordner/main_image/face_trigger.jpg", frame)
+    |-- photo_capture.release_camera()
+    |-- start_analyzing_mode() -> state = ANALYZING
+    `-- photo_done.emit() -> GUI: show_loading_indicator()
 ```
 
-**GUI:**
-```
-show_loading_indicator()
-    └── LoadingSpinnerItem anzeigen (rotierendes Symbol)
-        GUIState → LOADING
-```
+**Wichtig:** Im `ANALYZING`-Zustand bleibt die Kamera normalerweise geschlossen. Beim spaeteren Schliessen der Mappe kann sie aber bereits im Hintergrund wieder vorgewaermt werden.
 
 ---
 
-## Phase 4 — KI-Analyse (parallel in Containern / lokal)
+## Phase 4 - KI-Analyse
 
 Der Analyse-Teil besteht aus zwei Stufen:
-1. Face-YOLO zerlegt das Foto in einzelne Gesichter und verteilt die Dateien.
-2. DeepFace, Moondream und Ollama verarbeiten diese verteilten Dateien weiter.
 
-### 4.1 Face-YOLO (Docker-Container)
-```
-Face-YOLO-Container
-    ├── Liest: General ordner/main_image/face_trigger.jpg
-    ├── cleanup_previous_batch()
-    │   ├── löscht alte face*.png / face*.jpg in sketch/
-    │   ├── löscht alte face*.png / face*.jpg in deepface_inbox/
-    │   ├── löscht alte face*.png / face*.jpg in moondream_inbox/
-    │   └── löscht alte face*_*.yaml in final/
-    ├── YOLO-Gesichtserkennung auf face_trigger.jpg
-    ├── Schreibt: General ordner/final/faces_log.yaml
-    │               → { face_count: N }
-    ├── Für jedes Gesicht faceN:
-    │   ├── Schreibt: General ordner/sketch/faceN.png
-    │   ├── Schreibt: General ordner/docker-compose-deepface/deepface_inbox/faceN.png
-    │   └── Schreibt: General ordner/moondream_ai/moondream_inbox/faceN.png
-    └── Löscht: General ordner/main_image/face_trigger.jpg
+1. Face-YOLO zerlegt das Foto in Gesichter und verteilt die Dateien.
+2. DeepFace, Moondream und Ollama verarbeiten diese Dateien weiter.
+
+### 4.1 Face-YOLO
+
+Der Face-YOLO-Container (`docker-compose-face-Yolo/face_yolo.py`) ist die zentrale Verarbeitungsstufe. Er uebernimmt Gesichtserkennung, optionale Koerpererkennung und die Verteilung der Crops an die nachgelagerten KI-Dienste.
+
+**Alle Parameter werden vor jedem Bild live aus `config.yaml` geladen.**
+
+```text
+Face-YOLO  [Endlosschleife, 0.5s Takt]
+    |
+    |-- Liest: General ordner/main_image/face_trigger.jpg
+    |-- build_batch_id() -> z.B. "batch1234567890"
+    |
+    |-- cleanup_previous_batch()
+    |   |-- loescht alte face*- und batch*_face*-Dateien in sketch/
+    |   |-- loescht alte face*- und batch*_face*-Dateien in deepface_inbox/
+    |   |-- loescht alte face*- und batch*_face*-Dateien in moondream_inbox/
+    |   |-- loescht alte face*_*.yaml und batch*_face*_*.yaml in final/
+    |   `-- loescht alte Debug-Dateien in debug_body/
+    |
+    |-- preprocess_for_detection()
+    |   |-- Aufhellung
+    |   |-- CLAHE-Kontrast
+    |   `-- Scharfzeichnen
+    |
+    |-- yolov8n-face.pt -> Gesichtserkennung
+    |-- select_best_face_candidates()
+    |   |-- 45% Konfidenz
+    |   |-- 30% Flaeche
+    |   |-- 15% Bildmitte
+    |   `-- 10% Schaerfe
+    |
+    |-- sortiert Treffer von links nach rechts
+    |-- schreibt faces_log.yaml mit batch_id und face_count
+    |
+    `-- falls Modus != face:
+            |-- yolov8n.pt -> Personenerkennung (classes=[0])
+            `-- match_faces_to_persons()
 ```
 
-### 4.2 DeepFace (Docker-Container)
-```
-DeepFace-Container
-    ├── Liest: General ordner/docker-compose-deepface/deepface_inbox/faceN.png
-    ├── Erkennt: Alter, Geschlecht, dominante Emotion (RetinaFace optional)
-    ├── Schreibt: General ordner/final/faceN_deepface.yaml
-    │               → { Alter: 34, Geschlecht: "Mann", Emotion: "neutral" }
-    └── Löscht: deepface_inbox/faceN.png
+**Pro erkanntem Gesicht (`batch123_faceN`):**
+
+```text
+    |-- face_crop + rembg
+    |   |-- sketch/batch123_faceN.png
+    |   `-- deepface_inbox/batch123_faceN.png
+    |
+    |-- build_moondream_crop()
+    |   |
+    |   |-- "face"
+    |   |   `-- freigestellter Face-Crop
+    |   |
+    |   |-- "body"
+    |   |   |-- build_body_crop()
+    |   |   |-- nutzt Personenhoehe
+    |   |   |-- zentriert horizontal um das Gesicht
+    |   |   |-- body_padding_ratio beeinflusst den Rand
+    |   |   `-- Fallback auf Face wenn erlaubt
+    |   |
+    |   |-- "body_seg"
+    |   |   |-- yolov8n-seg.pt
+    |   |   |-- isoliert die Person pixelgenau
+    |   |   |-- Hintergrund wird weiss gesetzt
+    |   |   `-- Fallback auf Face wenn erlaubt
+    |   |
+    |   `-- "shadow"
+    |       |-- Moondream bekommt face_no_bg
+    |       `-- body/body_seg gehen nur nach debug_body/
+    |
+    |-- moondream_inbox/batch123_faceN.png
+    `-- loescht main_image/face_trigger.jpg nach dem letzten Gesicht
 ```
 
-### 4.3 Moondream (Docker-Container)
-```
-Moondream-Container
-    ├── Liest: General ordner/moondream_ai/moondream_inbox/faceN.png
-    ├── VLM-Analyse (visuelle Beschreibung der Person)
-    ├── Schreibt: General ordner/ollama_ai/ollama_inbox/faceN_ollama.yaml
-    │               → { moondream_description: "...", moondream_prompt: "..." }
-    └── Löscht: moondream_inbox/faceN.png
+**Debug-Ausgaben** (bei Body-/Segmentation-Pfaden und im Shadow-Debug):
+
+```text
+General ordner/debug_body/
+    |-- batch123_faceN_moondream.png
+    |-- batch123_faceN_body_seg.png
+    |-- batch123_faceN_body.png
+    `-- matching_debug.yaml
 ```
 
-### 4.4 Ollama-Worker (lokaler Python-Subprozess)
+**Konfigurationsparameter (`face_yolo:` in `config.yaml`):**
+
+| Parameter | Default | Effekt |
+|---|---|---|
+| `confidence` | 0.5 | Schwellenwert fuer `yolov8n-face.pt` |
+| `max_faces` | 4 | Maximal verarbeitete Gesichter pro Foto |
+| `moondream_crop_mode` | `face` | `face`, `body`, `body_seg`, `shadow` |
+| `body_confidence` | 0.35 | Schwellenwert fuer `yolov8n.pt` und `yolov8n-seg.pt` |
+| `body_padding_ratio` | 0.12 | Zusaetzlicher Rand fuer Body- und Seg-Crops |
+| `body_fallback_to_face` | true | Bei fehlendem brauchbarem Body-Crop auf Face zurueckfallen |
+| `body_matching_required` | false | Fehlendes Match als harteren Fehler behandeln |
+| `debug_matching` | true | `matching_debug.yaml` schreiben |
+
+### 4.2 DeepFace
+
+```text
+DeepFace
+    |-- liest deepface_inbox/batch123_faceN.png
+    |-- erkennt Alter, Geschlecht, dominante Emotion
+    |-- schreibt final/batch123_faceN_deepface.yaml
+    `-- loescht deepface_inbox/batch123_faceN.png
 ```
-workers/ollama_worker.py  [Endlosschleife, 0.5s Takt]
-    ├── Scannt: General ordner/ollama_ai/ollama_inbox/ nach faceN_ollama.yaml
-    ├── Findet: face1_ollama.yaml
-    ├── Liest: { moondream_description: "...", moondream_prompt: "..." }
-    ├── Baut Prompt: "Personenbeschreibung: ... \n <konfigurierter Prompt>"
-    ├── ollama.chat(model="qwen2.5:3b", messages=[...])  → lokale API
-    ├── normalize_single_paragraph(response)
-    ├── Schreibt: General ordner/final/face1_ollama.yaml
-    │               → { description: "...", source_description: "..." }
-    └── os.remove(ollama_inbox/face1_ollama.yaml)   (Inbox-Datei löschen)
+
+### 4.3 Moondream
+
+```text
+Moondream
+    |-- liest moondream_inbox/batch123_faceN.png
+    |-- erstellt visuelle Beschreibung
+    |-- schreibt ollama_inbox/batch123_faceN_ollama.yaml
+    `-- loescht moondream_inbox/batch123_faceN.png
+```
+
+### 4.4 Ollama-Worker
+
+```text
+workers/ollama_worker.py
+    |-- scannt ollama_inbox/ nach batch*_face*_ollama.yaml
+    |-- liest moondream_description + moondream_prompt
+    |-- baut Prompt
+    |-- ruft ollama.chat(...) auf
+    |-- schreibt final/batch123_faceN_ollama.yaml
+    `-- loescht die Inbox-Datei
 ```
 
 **Sonderfall Ollama deaktiviert:**
-```
+
+```text
 process_file_passthrough()
-    └── Moondream-Beschreibung direkt als face1_moondream.yaml in final/ schreiben
-        (Pipeline wartet dann auf moondream statt ollama)
+    `-- schreibt final/batch123_faceN_moondream.yaml
 ```
 
 ---
 
-## Phase 5 — PipelineManager überwacht `final/`
+## Phase 5 - PipelineManager ueberwacht `final/`
 
-```
+```text
 PipelineWorker.run()  [QThread, 0.5s Takt]
-    └── PipelineManager.check_for_updates()
-
-            Schritt 1: faces_log.yaml lesen
-            ├── Zeitstempel + face_count als "Signatur" prüfen
-            ├── Neue Signatur → results_cache, collected_faces, seen_files leeren
-            │                   (neuer Foto-Vorgang erkannt)
-            ├── face_count == 0 → data_finalized.emit("EMPTY", []) → Mappe bleibt zu
-            └── expected_face_count = face_count
-
-            Schritt 2: Neue .yaml-Dateien in final/ scannen
-            ├── Dateiname: face1_deepface.yaml → base_id="face1", model_id="deepface"
-            ├── Dateiinhalt in results_cache["face1"]["deepface"] speichern
-            ├── Dateiname: face1_ollama.yaml   → base_id="face1", model_id="ollama"
-            └── Dateiinhalt in results_cache["face1"]["ollama"] speichern
-
-            Schritt 3: Vollständigkeitsprüfung
-            ├── required_ids = ["ollama", "deepface"]  (oder ["moondream", "deepface"])
-            ├── Alle required_ids für face1 vorhanden?
-            └── JA → add_to_batch("face1")
-
-            Schritt 4: Batch abschließen
-            ├── _build_person_dict(base_id, df_data, description_data)
-            │       ├── beschreibung = ollama.description oder moondream.description
-            │       ├── Falls Sprache "de": TranslationService.translate_text(beschreibung)
-            │       │       → Cache prüfen → Google Translate API → Fallback: Originaltext
-            │       ├── gefahr = _calculate_danger(emotion)
-            │       │       → "happy"→GERING, "neutral"/"surprise"→MITTEL,
-            │       │          "sad"/"fear"/"disgust"→HOCH, "angry"→EXTREM
-            │       └── person_dict = { titel, geschlecht, alter, stimmung, gefahr, beschreibung }
-            │
-            ├── collected_faces.append(person_dict)
-            ├── len(collected_faces) >= expected_face_count?
-            └── JA → finalize_and_send_batch()
-
-            Schritt 5: Pool auffüllen
-            ├── _append_pool_people(collected_faces)
-            │       ├── real_count = 1 (Beispiel) → fehlende_slots = 3
-            │       ├── PoolLoader.get_pool_persons(3) → zufällige Pool-Personen
-            │       ├── _build_person_dict(..., source="pool") für jede Pool-Person
-            │       └── IDs vereinheitlichen: FACE1, FACE2, FACE3, FACE4
-            └── data_finalized.emit("BATCH", [4 Personen])
-                    → PipelineWorker.result_ready.emit("BATCH", data)
-                    → GUI.handle_pipeline_result("BATCH", data)   [QueuedConnection]
+    `-- PipelineManager.check_for_updates()
+            |
+            |-- Schritt 1: faces_log.yaml lesen
+            |   |-- Signatur = (mtime, batch_id, face_count)
+            |   |-- neue Signatur -> Cache, Batch-Zustand und Sammellisten leeren
+            |   |-- face_count == 0 -> data_finalized.emit("EMPTY", [])
+            |   `-- current_batch_id setzen
+            |
+            |-- Schritt 2: neue .yaml-Dateien in final/ scannen
+            |   |-- batch123_face1_deepface.yaml -> base_id="batch123_face1"
+            |   |-- batch123_face1_ollama.yaml   -> base_id="batch123_face1"
+            |   `-- Dateien anderer Batches werden ignoriert
+            |
+            |-- Schritt 3: Vollstaendigkeit pruefen
+            |   |-- required_ids = ["ollama", "deepface"]
+            |   `-- wenn komplett -> add_to_batch(base_id)
+            |
+            |-- Schritt 4: Person-Dict bauen
+            |   |-- Beschreibung aus Ollama oder Moondream
+            |   |-- DeepFace-Daten dazumischen
+            |   |-- Gefahr aus Emotion ableiten
+            |   `-- Sketch-Pfad fuer GUI direkt mitgeben
+            |
+            |-- Schritt 5: Pool auffuellen
+            |   |-- _append_pool_people(collected_faces)
+            |   `-- Pool-Logik lebt nur hier, nicht mehr in der GUI
+            |
+            `-- data_finalized.emit("BATCH", data)
 ```
 
 ---
 
-## Phase 6 — GUI empfängt Batch-Signal
+## Phase 6 - GUI empfaengt Batch-Signal
 
-```
+```text
 ScalingAkteGUI.handle_pipeline_result(status, personen_daten)
-    │
-    ├── status == "EMPTY" → Lade-Spinner ausblenden, close_folder("empty_result")
-    │
-    └── status == "BATCH"
-            ├── _load_person_data_from_final()
-            │   ├── DescriptionRepository.read_faces_log_count()
-            │   ├── DescriptionRepository.read_deepface_data(faceN)
-            │   ├── DescriptionRepository.read_ollama_description(faceN)
-            │   │   oder read_moondream_description(faceN)
-            │   ├── _build_person_dict_from_final(faceN)
-            │   └── _append_pool_people(...)  [GUI-seitig]
-            └── handle_new_dataset(personen_daten_aus_final)
-                    ├── personen_daten normalisieren (_normalize_person_data)
-                    ├── Pipeline-Timeout-Timer stoppen
-                    ├── YOLOWorker → PRESENCE_MONITORING vorbereiten
-                    │               (_auto_close_monitoring_pending = True)
-                    │
-                    ├── Mappe schon offen?
-                    │   └── JA  → show_flip_video()  (Umblätter-Animation, dann show_open_folder)
-                    └── Mappe zu?
-                        └── show_animation_with_timer()
+    |
+    |-- status == "EMPTY"
+    |   `-- close_folder("empty_result")
+    |
+    `-- status == "BATCH"
+            |-- Besucherstatistik ueber faces_log.yaml aktualisieren
+            |-- _auto_close_monitoring_pending = True
+            `-- handle_new_dataset(personen_daten)
+                    |-- fertigen Batch direkt uebernehmen
+                    |-- Mappe offen?
+                    |   `-- JA -> Flip-Animation
+                    `-- Mappe geschlossen?
+                        `-- Oeffnungs-Animation
 ```
+
+Die GUI baut den Pool nicht mehr selbst und rekonstruiert den Batch nicht mehr aus `final/`.
 
 ---
 
-## Phase 7 — Mappe öffnen (Animation)
+## Phase 7 - Mappe oeffnen
 
-```
+```text
 show_animation_with_timer()
-    ├── Developer-Modus?
-    │   └── JA → start_animation() direkt (kein Countdown)
-    └── NEIN → _start_wait_timer()
-                    ├── CircularTimerItem anzeigen (Countdown-Kreis)
-                    ├── wait_timer startet (33ms Takt = ~30 FPS)
-                    └── _update_wait_timer() → Fortschritt aktualisieren
-                            └── Countdown = 0 → wait_timer_item.hide()
-                                             → start_animation()
+    |-- Developer-Modus? -> Animation sofort
+    `-- sonst Countdown-Kreis starten
 
-start_animation(video_path=open_animation.mp4)
-    ├── GUIState → OPENING
-    ├── hide_loading_indicator()
-    ├── cv2.VideoCapture(open_animation.mp4) öffnen
-    └── update_video_frame()  [QTimer-Kette, animation_speed ms/Frame]
-            ├── Frame lesen → QPixmap → Szene aktualisieren
-            ├── Nächstes Frame in animation_speed ms anfordern
-            └── Video fertig → show_open_folder()
+start_animation(open_animation.mp4)
+    |-- GUIState -> OPENING
+    |-- hide_loading_indicator()
+    `-- update_video_frame() per QTimer
+            `-- Video fertig -> show_open_folder()
 ```
 
 ---
 
-## Phase 8 — Mappe angezeigt
+## Phase 8 - Mappe offen
 
-```
+```text
 show_open_folder()
-    ├── GUIState → RESULTS_READY
-    ├── _sound_svc.play("folder_open")
-    ├── _is_open = True
-    ├── Szene aufbauen:
-    │       ├── Hintergrundbild (open_folder.png)
-    │       ├── setup_ui_elements()
-    │       │       └── PersonContainer × 4
-    │       │               ├── Bildquelle: sketch/faceN.png oder Pool-Bild
-    │       │               ├── Sketch-Darstellung (create_advanced_sketch → Strichzeichnung)
-    │       │               ├── Biometrie-Labels (Alter, Geschlecht, Emotion, Gefahrenstufe)
-    │       │               └── Beschreibungstext (Typewriter-Animation)
-    │       └── setup_buttons()
-    │               ├── AnimatedGraphicsButton (Sprache DE/EN)
-    │               └── AnimatedGraphicsButton (Reset)
-    │
-    ├── update_descriptions_from_files()
-    │   ├── liest final/faceN_ollama.yaml oder final/faceN_moondream.yaml
-    │   └── liest final/faceN_deepface.yaml
-    │       → aktualisiert Container nach dem Öffnen nochmals direkt aus final/
-    │
-    └── Auto-Close aktivieren?
-            └── _auto_close_monitoring_pending = True?
-                └── JA → GUIState → PRESENCE_MONITORING
-                         presence_monitoring_requested.emit()
-                         → YOLOWorker.start_presence_monitoring()
-                              → state = PRESENCE_MONITORING
+    |-- GUIState -> RESULTS_READY
+    |-- Sound: folder_open
+    |-- setup_ui_elements()
+    |   |-- PersonContainer x4
+    |   |-- Sketch/Bild aus mitgegebenem Batch oder Pool
+    |   `-- Buttons aufbauen
+    |-- update_descriptions_from_files()
+    |   `-- liest aktuelle Batch-Dateien bei Bedarf nochmals aus final/
+    `-- falls Auto-Close aktiv:
+            presence_monitoring_requested.emit()
+            -> YOLOWorker.start_presence_monitoring()
 ```
 
 ### 8.1 Typewriter-Animation
-```
+
+```text
 PersonContainer.trigger_typing()
-    └── UiTypewriter.start_typing()
-            └── Buchstabe für Buchstabe ausgeben (QTimer)
-                mit optionalem Tipp-Sound pro Buchstabe
+    `-- UiTypewriter.start_typing()
 ```
 
-### 8.2 Auto-Close-Überwachung
-```
+### 8.2 Auto-Close-Ueberwachung
+
+```text
 YOLOWorker  [PRESENCE_MONITORING]
-    └── PersonPhotoCapture.presence_mode()
-            ├── Frame lesen
-            ├── YOLO-Inferenz: Person vorhanden?
-            └── person_presence_changed.emit(True/False)
+    `-- PersonPhotoCapture.presence_mode()
+            |-- Frame lesen
+            |-- YOLO-Inferenz: Person vorhanden?
+            `-- person_presence_changed.emit(True/False)
 
 GUI: on_person_presence_changed(is_present)
-    ├── is_present = True  → _stop_no_person_timer() (Zähler reset)
-    └── is_present = False → _missed_presence_checks += 1
-            ├── _get_warning_start_missed_checks() erreicht?
-            │   └── JA → Reset-Button blinkt (400ms Takt)
-            └── _get_auto_close_missed_check_limit() erreicht?
-                └── JA → close_folder("auto_close")
+    |-- True  -> Zaehler und Warnung zuruecksetzen
+    `-- False -> _missed_presence_checks += 1
+            |-- Warnschwelle erreicht? -> Reset-Button blinkt
+            `-- Limit erreicht? -> close_folder("auto_close")
 ```
-**Formel:** `limit = close_on_no_person_seconds × 1000 / no_person_check_interval_ms`
-Beispiel: 10s Timeout, 2000ms Intervall → 5 verpasste Checks bis Auto-Close.
 
-### 8.3 Reset-Button (Nutzer)
-```
-btn_reset.clicked → reset_logic()
-    └── _start_reset_countdown()
-            ├── btn_reset-Bild gegen leere Variante tauschen
-            ├── ResetCountdownItem (Zahl) über Reset-Button positionieren
-            └── _reset_countdown_timer.start(1000)  [1s Takt]
-                    └── _update_reset_countdown()
-                            ├── remaining -= 1
-                            ├── ResetCountdownItem aktualisieren
-                            └── remaining == 0 → close_folder("manual_countdown")
+### 8.3 Reset
+
+```text
+btn_reset.clicked -> reset_logic()
+    `-- Countdown oder direktes close_folder("manual"/"manual_countdown")
 ```
 
 ### 8.4 Sprache wechseln
-```
-btn_language.clicked → _on_language_button_clicked()
-    ├── Cooldown aktiv? → ignorieren
-    └── switch_language_logic()
-            ├── btn_language.is_toggled? → "en" : "de"
-            ├── _apply_language_to_containers(language)
-            ├── TranslationService(target_lang) neu erstellen
-            ├── _refresh_descriptions_for_language()
-            │       └── Jeden Container-Text neu übersetzen + Typewriter neu starten
-            └── _save_language_to_config(language)
-        _start_language_button_cooldown()  (5s gesperrt)
+
+```text
+btn_language.clicked -> switch_language_logic()
+    |-- Zielsprache wechseln
+    |-- Container aktualisieren
+    `-- Sprache in config.yaml speichern
 ```
 
 ---
 
-## Phase 9 — Mappe schließen
+## Phase 9 - Mappe schliessen
 
-```
+```text
 close_folder(reason)
-    ├── _clear_pipeline_outputs_on_close setzen
-    │       → True für: "manual", "manual_countdown", "auto_close",
-    │                   "pipeline_timeout", "empty_result"
-    ├── Animation läuft gerade?
-    │   └── JA → _pending_close merken (wird nach Animation ausgeführt)
-    └── _is_open = True und animated = True?
-        └── JA → start_animation(close_animation.mp4, end_callback=show_closed_folder)
+    |-- camera_prewarm_requested.emit()
+    |   `-- YOLOWorker.request_camera_prewarm()
+    |-- _clear_pipeline_outputs_on_close setzen
+    |-- falls Animation laeuft: _pending_close merken
+    `-- sonst close_animation.mp4 starten
 ```
 
-```
-start_animation(close_animation.mp4)
-    └── update_video_frame()  [QTimer-Kette]
-            └── Video fertig → show_closed_folder()
+```text
+YOLOWorker  [ANALYZING oder PRESENCE_MONITORING]
+    `-- request_camera_prewarm()
+            |-- Kamera im Worker-Thread oeffnen
+            |-- Test-Frame lesen
+            `-- Kamera bis zum Ruecksprung nach IDLE offen halten
 ```
 
-```
+```text
 show_closed_folder()
-    ├── _clear_pipeline_outputs_on_close?
-    │   └── JA → _clear_pipeline_output_dirs()
-    │               ├── General ordner/final/       leeren
-    │               └── General ordner/ollama_inbox/ leeren
-    ├── _is_open = False
-    ├── GUIState → IDLE
-    ├── Alle Timer stoppen (_stop_no_person_timer, wait_timer, ...)
-    ├── scene.clear() → active_containers = []
-    ├── _sound_svc.play("folder_close")
-    ├── Szene aufbauen: geschlossener Ordner + Logos + Kamera-Preview
-    └── folder_closed.emit()
-            → YOLOWorker.start_capture_mode()
-                    └── state = IDLE  → Kamera läuft wieder
-```
-
-**PipelineManager (im PipelineWorker-Thread):**
-```
-Nächster check_for_updates()-Aufruf:
-    └── final/ ist leer → keine neuen Dateien → Warten auf neuen faces_log.yaml
-        (PipelineManager setzt intern batch state zurück wenn neues faces_log.yaml erscheint)
+    |-- Pipeline-Ausgaben bei Bedarf leeren
+    |-- _is_open = False
+    |-- GUIState -> IDLE
+    |-- Szene neu aufbauen
+    |-- schwarzer Kamera-Platzhalter
+    `-- folder_closed.emit()
+            -> YOLOWorker.start_capture_mode()
+                    `-- state = IDLE; Kamera sollte bereits vorgewaermt sein
 ```
 
 ---
 
-## Vollständiger Kreislauf
+## Vollstaendiger Kreislauf
 
-```
-show_closed_folder()
-    │
-    └── folder_closed.emit() → YOLOWorker.start_capture_mode()
-                                        │
-                                        ▼
-                              ← Phase 2: Kamera-Scan (IDLE) ←
+```text
+close_folder()
+    |-- camera_prewarm_requested.emit() -> YOLOWorker.request_camera_prewarm()
+    `-- ... Schliess-Animation ...
+            |
+            v
+      show_closed_folder()
+          `-- folder_closed.emit() -> YOLOWorker.start_capture_mode()
+                                          |
+                                          v
+                                <- Phase 2: Kamera-Scan (IDLE) <-
 ```
 
 ---
@@ -508,17 +509,18 @@ show_closed_folder()
 
 | Datei / Ordner | Rolle |
 |---|---|
-| `config.yaml` | Zentrale Konfiguration (Sprache, Modelle, Timeouts, Pfade) |
-| `path_service.py` | Einzige Stelle für alle Ordnerpfade, `base_dir` steuerbar |
-| `General ordner/main_image/face_trigger.jpg` | Kamera-Foto → Eingang für alle KI-Container |
-| `General ordner/final/faces_log.yaml` | YOLO-Log: wie viele Gesichter erwartet werden |
-| `General ordner/final/face1_deepface.yaml` | Ergebnis von DeepFace (Alter, Geschlecht, Emotion) |
-| `General ordner/ollama_ai/ollama_inbox/face1_ollama.yaml` | Moondream-Zwischenergebnis → Eingang für Ollama |
-| `General ordner/final/face1_ollama.yaml` | Finales Ollama-Ergebnis (Kriminalgeschichte) |
-| `General ordner/final/face1_moondream.yaml` | Fallback-Textausgabe, wenn Ollama deaktiviert ist |
-| `General ordner/sketch/face1.png` | Von Face-YOLO erzeugter Gesichts-Crop für die GUI-Anzeige |
-| `./pool/` | Vorbefüllte Pool-Personen als Fallback wenn < 4 Gesichter erkannt |
-| `translation_cache.yaml` | Lokaler Übersetzungs-Cache (Offline-Betrieb im Museum) |
+| `config.yaml` | Zentrale Konfiguration |
+| `path_service.py` | Zentrale Pfadauflosung |
+| `General ordner/main_image/face_trigger.jpg` | Kamera-Foto als Eingang fuer Face-YOLO |
+| `General ordner/final/faces_log.yaml` | Aktueller `batch_id`, `face_count` und weitere Batch-Metadaten |
+| `General ordner/final/batch123_face1_deepface.yaml` | Ergebnis von DeepFace |
+| `General ordner/ollama_ai/ollama_inbox/batch123_face1_ollama.yaml` | Moondream-Zwischenergebnis fuer Ollama |
+| `General ordner/final/batch123_face1_ollama.yaml` | Finales Ollama-Ergebnis |
+| `General ordner/final/batch123_face1_moondream.yaml` | Fallback-Ausgabe, wenn Ollama deaktiviert ist |
+| `General ordner/sketch/batch123_face1.png` | Von Face-YOLO erzeugter GUI-Crop |
+| `General ordner/debug_body/` | Debug-Ausgaben fuer Body-/Segmentation-Pfade |
+| `./pool/` | Vorbefuellte Pool-Personen |
+| `translation_cache.yaml` | Lokaler Uebersetzungs-Cache |
 
 ---
 
@@ -526,30 +528,25 @@ show_closed_folder()
 
 | Komponente | Typ | Kommunikation |
 |---|---|---|
-| Qt-Eventschleife + GUI | Hauptthread | — |
-| `YOLOWorker` | QThread | Signale: `frame_ready`, `photo_done`, `person_presence_changed` |
-| `PipelineWorker` | QThread | Signal: `result_ready` → `handle_pipeline_result` (QueuedConnection) |
-| `ollama_worker.py` | Subprozess (subprocess.Popen) | Dateisystem: liest ollama_inbox/, schreibt final/ |
-| Face-YOLO-Container | Docker | Dateisystem: liest main_image/, schreibt sketch/ + deepface_inbox/ + moondream_inbox/ + final/faces_log.yaml |
-| Moondream-Container | Docker | Dateisystem: liest moondream_inbox/, schreibt ollama_inbox/ |
-| DeepFace-Container | Docker | Dateisystem: liest deepface_inbox/, schreibt final/ |
+| Qt-Eventschleife + GUI | Hauptthread | - |
+| `YOLOWorker` | QThread | Signale: `frame_ready`, `photo_done`, `person_presence_changed`; Methoden: `start_capture_mode()`, `start_presence_monitoring()`, `request_camera_prewarm()` |
+| `PipelineWorker` | QThread | Signal: `result_ready` -> `handle_pipeline_result` |
+| `ollama_worker.py` | Subprozess | Liest `ollama_inbox/`, schreibt `final/` |
+| Face-YOLO-Container | Docker | Liest `main_image/`, schreibt `sketch/`, `deepface_inbox/`, `moondream_inbox/`, `final/faces_log.yaml`, `debug_body/` |
+| Moondream-Container | Docker | Liest `moondream_inbox/`, schreibt `ollama_inbox/` |
+| DeepFace-Container | Docker | Liest `deepface_inbox/`, schreibt `final/` |
 
-Alle Signale zwischen Threads werden über Qt `QueuedConnection` gesetzt,
-damit GUI-Updates immer im Hauptthread erfolgen.
+Alle GUI-Updates laufen ueber Qt-Queued-Connections bzw. Qt-Signale.
 
 ---
 
 ## Ordner-Pfade konfigurieren
 
-Standard: `General ordner/`. Um den gesamten Arbeitsordner umzubenennen
-(z.B. beim Zusammenlegen mit docker-compose-Dateien), reicht eine einzige
-Änderung in `config.yaml`:
+Standard: `General ordner/`
 
 ```yaml
 paths:
   base_dir: general_ordner
 ```
 
-Alle Ordner (`final`, `main_image`, `ollama_inbox`, `deepface_inbox`,
-`moondream_inbox`, `sketch_dir`, `face_yolo_weights`) folgen automatisch.
-Einzelne Pfade können zusätzlich separat überschrieben werden.
+Alle Standardordner (`final`, `main_image`, `ollama_inbox`, `deepface_inbox`, `moondream_inbox`, `sketch_dir`, `face_yolo_weights`) folgen automatisch diesem Basisverzeichnis. Einzelne Pfade koennen zusaetzlich separat ueberschrieben werden.
