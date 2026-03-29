@@ -19,6 +19,7 @@ class PersonPhotoCapture:
         self.PHOTO_DELAY_SECONDS = photo_delay
         self.PERSON_LOST_TOLERANCE = lost_tolerance
         self._cap = None
+        self._last_camera_index = None
         self.model = model
         self.language = "de"
         print("YOLO Modell uebernommen.")
@@ -48,7 +49,16 @@ class PersonPhotoCapture:
         except Exception:
             config = {}
 
+        # Bevorzugt den zuletzt erfolgreichen Kameraindex, damit nicht bei jedem
+        # Reopen erneut alle Indizes durchprobiert werden muessen.
+        candidate_indices = []
+        if self._last_camera_index is not None:
+            candidate_indices.append(self._last_camera_index)
         for index in [0, 1, 2]:
+            if index not in candidate_indices:
+                candidate_indices.append(index)
+
+        for index in candidate_indices:
             cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
             time.sleep(0.3)
             if cap.isOpened():
@@ -70,6 +80,7 @@ class PersonPhotoCapture:
                     print(f"[KAMERA] Geoeffnet (Index {index})")
                     print(f"[KAMERA] Aufloesung: {actual_width}x{actual_height}")
                 self._cap = cap
+                self._last_camera_index = index
                 return self._cap
             cap.release()
 
@@ -86,16 +97,26 @@ class PersonPhotoCapture:
     # Frame lesen
     # ----------------------------
     def _read_frame(self, log_open=True):
-        """Liest einen Frame von der Kamera"""
+        """
+        Liest einen Frame von der Kamera.
+
+        Wiederholt das Lesen kurz auf derselben offenen Kamera, bevor ein
+        kompletter Reopen ausgelost wird. Das vermeidet sichtbares An/Aus/An,
+        wenn der Treiber die ersten Frames nach dem Oeffnen noch nicht stabil liefert.
+        """
         cap = self.ensure_camera_open(log_open=log_open)
         if not cap:
             return None
-        ret, frame = cap.read()
-        if not ret:
-            print("Fehler beim Lesen des Frames")
-            self.release_camera()
-            return None
-        return frame
+
+        for _ in range(4):
+            ret, frame = cap.read()
+            if ret:
+                return frame
+            time.sleep(0.05)
+
+        print("Fehler beim Lesen des Frames")
+        self.release_camera()
+        return None
 
     # ----------------------------
     # Personenerkennung

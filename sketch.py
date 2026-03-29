@@ -120,6 +120,6 @@ def create_advanced_sketch(image_path_or_img, output_path=None, delete_input=Fal
 if __name__ == "__main__":
     # --- ANWENDUNG ---
     # Pfade anpassen (Nutze r"PFAD" fuer Windows-Pfade mit Backslashes)
-    input_file = r"General ordner/sketch/face1.png"
+    input_file = r"general_ordner/sketch/face1.png"
     output_file = r"C:/Users/Dennis/Downloads/face4_sketch.jpg"
     create_advanced_sketch(input_file, output_file)

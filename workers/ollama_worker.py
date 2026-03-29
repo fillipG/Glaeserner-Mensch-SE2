@@ -7,7 +7,7 @@ Text-YAMLs in den gemeinsamen final-Ordner.
 
 Zustaendigkeiten:
 1. Einlesen der aktuellen Ollama-Konfiguration aus config.yaml.
-2. Ueberwachung von `General ordner/ollama_ai/ollama_inbox`.
+2. Ueberwachung von `general_ordner/ollama_ai/ollama_inbox`.
 3. Erzeugen der finalen Kriminalgeschichte ueber die lokale Ollama-API.
 4. Pass-Through-Fall, wenn Ollama in der Config deaktiviert ist.
 5. Sicheres Schreiben der Output-YAMLs und Aufraeumen der Inbox-Dateien.

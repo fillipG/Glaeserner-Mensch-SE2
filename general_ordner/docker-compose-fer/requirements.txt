@@ -1,0 +1,7 @@
+flask
+tensorflow-cpu==2.15.0
+opencv-python
+fer==22.5.1
+moviepy==1.0.3
+decorator==4.4.2
+PyYAML

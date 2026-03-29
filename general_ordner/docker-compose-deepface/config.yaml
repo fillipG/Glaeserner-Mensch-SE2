@@ -1,0 +1,10 @@
+# ACHTUNG: Diese Datei wird im produktiven Betrieb NICHT verwendet.
+# Die wirksame Konfiguration ist die Root-config.yaml im Projektordner.
+# Im produktiven Docker-Lauf wird diese Datei NICHT gemountet.
+# Aenderungen hier haben keinen Effekt auf den laufenden DeepFace-Worker.
+pipeline:
+  - id: "deepface"
+    enabled: true
+    Deepface_emotion: true
+    Deepface_alter: true
+    Deepface_geschlecht: true

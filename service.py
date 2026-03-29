@@ -95,6 +95,8 @@ class TranslationService:
         # FALL 2: Nicht im Cache → Google Translate API aufrufen
         try:
             translated = self.translator.translate(text)
+            if translated == text:
+                return text
             # Erfolgreiche Übersetzung im Cache speichern
             self._cache[cache_key] = translated
             self._save_cache()

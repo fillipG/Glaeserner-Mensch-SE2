@@ -1,0 +1,167 @@
+name: glaeserner-mensch
+
+services:
+  face-yolo:
+    build:
+      context: "general_ordner/docker-compose-face-Yolo"
+    image: museum-face-yolo
+    restart: unless-stopped
+    environment:
+      PYTHONUNBUFFERED: "1"
+      FACE_YOLO_PROCESSING_TIMEOUT_SECONDS: "120"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - |
+          import datetime, json, sys
+          try:
+              with open('/app/status/heartbeat.json', encoding='utf-8') as handle:
+                  data = json.load(handle)
+              timestamp = datetime.datetime.fromisoformat(data['timestamp_utc'])
+              if timestamp.tzinfo is None:
+                  timestamp = timestamp.replace(tzinfo=datetime.timezone.utc)
+              age = (
+                  datetime.datetime.now(datetime.timezone.utc)
+                  - timestamp.astimezone(datetime.timezone.utc)
+              ).total_seconds()
+              sys.exit(0 if age < 180 and data.get('state') != 'error' else 1)
+          except Exception:
+              sys.exit(1)
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+    volumes:
+      - "./general_ordner/main_image:/app/main_image"
+      - "./general_ordner/final:/app/final"
+      - "./general_ordner/sketch:/app/sketch"
+      - "./general_ordner/docker-compose-deepface/deepface_inbox:/app/deepface_inbox"
+      - "./general_ordner/moondream_ai/moondream_inbox:/app/moondream_inbox"
+      - "./general_ordner/debug_body:/app/debug_body"
+      - "./general_ordner/status/face-yolo:/app/status"
+      - "./general_ordner/docker-compose-face-Yolo/models_cache:/root/.u2net"
+      - "./config.yaml:/app/config.yaml:ro"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  deepface:
+    build:
+      context: "general_ordner/docker-compose-deepface"
+    image: museum-deepface
+    restart: unless-stopped
+    environment:
+      PYTHONUNBUFFERED: "1"
+      DEEPFACE_PROCESSING_TIMEOUT_SECONDS: "120"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - |
+          import datetime, json, sys
+          try:
+              with open('/app/status/heartbeat.json', encoding='utf-8') as handle:
+                  data = json.load(handle)
+              timestamp = datetime.datetime.fromisoformat(data['timestamp_utc'])
+              if timestamp.tzinfo is None:
+                  timestamp = timestamp.replace(tzinfo=datetime.timezone.utc)
+              age = (
+                  datetime.datetime.now(datetime.timezone.utc)
+                  - timestamp.astimezone(datetime.timezone.utc)
+              ).total_seconds()
+              sys.exit(0 if age < 180 and data.get('state') != 'error' else 1)
+          except Exception:
+              sys.exit(1)
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+    volumes:
+      - "./general_ordner/docker-compose-deepface/deepface_inbox:/app/deepface_inbox"
+      - "./general_ordner/final:/app/final"
+      - "./general_ordner/docker-compose-deepface/deepface_weights:/root/.deepface/weights"
+      - "./general_ordner/docker-compose-deepface/failed:/app/failed"
+      - "./general_ordner/status/deepface:/app/status"
+      - "./config.yaml:/app/config.yaml:ro"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  moondream:
+    build:
+      context: "general_ordner/moondream_ai"
+    image: museum-moondream
+    restart: unless-stopped
+    environment:
+      PYTHONUNBUFFERED: "1"
+      HF_HOME: "/app/.cache/huggingface"
+      HF_HUB_DISABLE_XET: "1"
+      MOONDREAM_REVISION: "6b714b26eea5cbd9f31e4edb2541c170afa935ba"
+      MOONDREAM_PROCESSING_TIMEOUT_SECONDS: "900"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - |
+          import datetime, json, sys
+          try:
+              with open('/app/status/heartbeat.json', encoding='utf-8') as handle:
+                  data = json.load(handle)
+              timestamp = datetime.datetime.fromisoformat(data['timestamp_utc'])
+              if timestamp.tzinfo is None:
+                  timestamp = timestamp.replace(tzinfo=datetime.timezone.utc)
+              age = (
+                  datetime.datetime.now(datetime.timezone.utc)
+                  - timestamp.astimezone(datetime.timezone.utc)
+              ).total_seconds()
+              sys.exit(0 if age < 1000 and data.get('state') != 'error' else 1)
+          except Exception:
+              sys.exit(1)
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 960s
+    volumes:
+      - "./general_ordner/moondream_ai/moondream_inbox:/app/moondream_inbox"
+      - "./general_ordner/ollama_ai/ollama_inbox:/app/ollama_inbox"
+      - "./general_ordner/moondream_ai/failed:/app/failed"
+      - "./general_ordner/status/moondream:/app/status"
+      - "./config.yaml:/app/config.yaml:ro"
+      - "moondream-hf-cache:/app/.cache/huggingface"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+volumes:
+  moondream-hf-cache:

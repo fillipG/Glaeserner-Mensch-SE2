@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.pyo
+
+moondream_inbox/
+
+.git/
+.idea/
+.vscode/
+
+*.log
+Thumbs.db

@@ -14,7 +14,7 @@ class DescriptionRepository:
     Kapselt Dateizugriffe fuer Beschreibungsdaten im final-Ordner.
     """
 
-    def __init__(self, base_dir="General ordner/final"):
+    def __init__(self, base_dir="general_ordner/final"):
         """
         Initialisiert das Repository mit einem Basisverzeichnis.
         :param base_dir: Ordnerpfad mit YAML-Ergebnissen.

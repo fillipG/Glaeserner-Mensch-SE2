@@ -9,7 +9,7 @@ pipeline:
 - id: moondream
   name: Visual Description (VLM)
   enabled: true
-  watch_dir: ./General ordner/final
+  watch_dir: ./general_ordner/final
   file_ext: .yaml
   show_preview: true
   prompt: Name the clothing and any accessories the person is wearing and tell a imagined

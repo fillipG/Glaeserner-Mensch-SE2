@@ -4,7 +4,7 @@ path_service.py
 Zentrale Pfadauflösung für alle KI-Kommunikationsordner.
 
 Alle Pfade leiten sich aus einem gemeinsamen Basisverzeichnis ab
-(Standard: "General ordner"). Um das gesamte Verzeichnis umzubenennen,
+(Standard: "general_ordner"). Um das gesamte Verzeichnis umzubenennen,
 genügt eine einzige Änderung in config.yaml:
 
     paths:
@@ -68,9 +68,9 @@ def _load_paths() -> dict:
         configured_paths = {}
 
     # Einzelner Schlüssel für das gesamte Basisverzeichnis.
-    # Ändert man hier "General ordner" auf "general_ordner" (oder beliebig),
+    # Ändert man hier "general_ordner" auf "general_ordner" (oder beliebig),
     # folgen automatisch ALLE abgeleiteten Pfade mit.
-    base_dir = configured_paths.get("base_dir", "General ordner")
+    base_dir = configured_paths.get("base_dir", "general_ordner")
 
     def resolve(key: str, default_subpath: str) -> Path:
         """

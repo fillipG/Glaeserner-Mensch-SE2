@@ -2,6 +2,21 @@
 
 Vollstaendige Beschreibung des aktuellen Programmdurchlaufs von Start bis Mappe-Schliessen.
 
+Voraussetzung fuer den aktuellen Betrieb:
+
+```text
+Root-Compose im Projekt-Root starten
+    `-- docker compose -f compose.yaml up -d
+            |-- Docker: face-yolo
+            |-- Docker: deepface
+            `-- Docker: moondream
+
+Lokal starten
+    `-- py -3.10 main.py
+```
+
+Die drei produktiven Docker-Services werden also nicht mehr ueber mehrere getrennte Compose-Dateien gestartet, sondern zentral ueber `compose.yaml` im Projekt-Root.
+
 ---
 
 ## Uebersicht
@@ -14,14 +29,14 @@ Kamera-Scan (IDLE) <- Live-Preview in GUI
     |
     |  Person erkannt + Countdown abgelaufen
     v
-Foto ausloesen -> General ordner/main_image/face_trigger.jpg
+Foto ausloesen -> general_ordner/main_image/face_trigger.jpg
     |
     v
 Docker: Face-YOLO
-    |-- schreibt General ordner/final/faces_log.yaml
-    |-- schreibt General ordner/sketch/batch123_face1.png
-    |-- schreibt General ordner/docker-compose-deepface/deepface_inbox/batch123_face1.png
-    `-- schreibt General ordner/moondream_ai/moondream_inbox/batch123_face1.png
+    |-- schreibt general_ordner/final/faces_log.yaml
+    |-- schreibt general_ordner/sketch/batch123_face1.png
+    |-- schreibt general_ordner/docker-compose-deepface/deepface_inbox/batch123_face1.png
+    `-- schreibt general_ordner/moondream_ai/moondream_inbox/batch123_face1.png
     |
     |--> Docker: DeepFace  -> final/batch123_face1_deepface.yaml
     |--> Docker: Moondream -> ollama_inbox/batch123_face1_ollama.yaml
@@ -85,12 +100,12 @@ main.py
 ```text
 main.py
     `-- path_service.get_paths() -> Ordner leeren:
-            |-- General ordner/final/
-            |-- General ordner/main_image/
-            |-- General ordner/sketch/
-            |-- General ordner/ollama_ai/ollama_inbox/
-            |-- General ordner/docker-compose-deepface/deepface_inbox/
-            `-- General ordner/moondream_ai/moondream_inbox/
+            |-- general_ordner/final/
+            |-- general_ordner/main_image/
+            |-- general_ordner/sketch/
+            |-- general_ordner/ollama_ai/ollama_inbox/
+            |-- general_ordner/docker-compose-deepface/deepface_inbox/
+            `-- general_ordner/moondream_ai/moondream_inbox/
 ```
 
 Ohne dieses Cleanup koennten alte KI-Ergebnisse beim Neustart als neue Daten erkannt werden.
@@ -169,7 +184,7 @@ on_camera_frame(frame)
 
 ```text
 YOLOWorker (nach Countdown)
-    |-- cv2.imwrite("General ordner/main_image/face_trigger.jpg", frame)
+    |-- cv2.imwrite("general_ordner/main_image/face_trigger.jpg", frame)
     |-- photo_capture.release_camera()
     |-- start_analyzing_mode() -> state = ANALYZING
     `-- photo_done.emit() -> GUI: show_loading_indicator()
@@ -190,18 +205,31 @@ Der Analyse-Teil besteht aus zwei Stufen:
 
 Der Face-YOLO-Container (`docker-compose-face-Yolo/face_yolo.py`) ist die zentrale Verarbeitungsstufe. Er uebernimmt Gesichtserkennung, optionale Koerpererkennung und die Verteilung der Crops an die nachgelagerten KI-Dienste.
 
+**Betrieb aktuell:**
+
+```text
+compose.yaml
+    `-- Service: face-yolo
+            |-- restart: unless-stopped
+            |-- Healthcheck ueber /app/status/heartbeat.json
+            `-- Watchdog im Worker beendet den Prozess bei haengendem processing
+```
+
 **Alle Parameter werden vor jedem Bild live aus `config.yaml` geladen.**
 
 ```text
 Face-YOLO  [Endlosschleife, 0.5s Takt]
     |
-    |-- Liest: General ordner/main_image/face_trigger.jpg
+    |-- Liest: general_ordner/main_image/face_trigger.jpg
     |-- build_batch_id() -> z.B. "batch1234567890"
     |
     |-- cleanup_previous_batch()
     |   |-- loescht alte face*- und batch*_face*-Dateien in sketch/
     |   |-- loescht alte face*- und batch*_face*-Dateien in deepface_inbox/
     |   |-- loescht alte face*- und batch*_face*-Dateien in moondream_inbox/
+    |   |-- raeumt zusaetzlich liegengebliebene *.png.tmp / *.jpg.tmp / *.jpeg.tmp
+    |   |   aus sketch/, deepface_inbox/ und moondream_inbox/ auf
+    |   |   (z.B. nach Absturz zwischen temporaerem Schreiben und atomarem Rename)
     |   |-- loescht alte face*_*.yaml und batch*_face*_*.yaml in final/
     |   `-- loescht alte Debug-Dateien in debug_body/
     |
@@ -231,6 +259,10 @@ Face-YOLO  [Endlosschleife, 0.5s Takt]
     |-- face_crop + rembg
     |   |-- sketch/batch123_faceN.png
     |   `-- deepface_inbox/batch123_faceN.png
+    |       Hinweis: Face-YOLO schreibt Inbox-Dateien atomar - erst als temporaere
+    |       Datei (z.B. batch123_faceN.png.tmp), danach atomares os.replace() auf
+    |       den finalen Namen. Damit sehen Moondream und DeepFace nur vollstaendige
+    |       Dateien und keine teilweise geschriebenen Bilder.
     |
     |-- build_moondream_crop()
     |   |
@@ -261,7 +293,7 @@ Face-YOLO  [Endlosschleife, 0.5s Takt]
 **Debug-Ausgaben** (bei Body-/Segmentation-Pfaden und im Shadow-Debug):
 
 ```text
-General ordner/debug_body/
+general_ordner/debug_body/
     |-- batch123_faceN_moondream.png
     |-- batch123_faceN_body_seg.png
     |-- batch123_faceN_body.png
@@ -288,7 +320,22 @@ DeepFace
     |-- liest deepface_inbox/batch123_faceN.png
     |-- erkennt Alter, Geschlecht, dominante Emotion
     |-- schreibt final/batch123_faceN_deepface.yaml
-    `-- loescht deepface_inbox/batch123_faceN.png
+    |-- Erfolg -> loescht deepface_inbox/batch123_faceN.png
+    `-- Fehler -> verschiebt Datei nach docker-compose-deepface/failed/
+```
+
+**Betrieb aktuell:**
+
+```text
+compose.yaml
+    `-- Service: deepface
+            |-- restart: unless-stopped
+            |-- Healthcheck ueber /app/status/heartbeat.json
+            |-- Heartbeat-Datei im Host:
+            |   `-- general_ordner/status/deepface/heartbeat.json
+            `-- Fehlerfaelle:
+                |-- Bild nach general_ordner/docker-compose-deepface/failed/
+                `-- batch123_faceN_error.yaml daneben
 ```
 
 ### 4.3 Moondream
@@ -298,7 +345,25 @@ Moondream
     |-- liest moondream_inbox/batch123_faceN.png
     |-- erstellt visuelle Beschreibung
     |-- schreibt ollama_inbox/batch123_faceN_ollama.yaml
-    `-- loescht moondream_inbox/batch123_faceN.png
+    |-- Erfolg -> loescht moondream_inbox/batch123_faceN.png
+    `-- Fehler -> verschiebt Datei nach moondream_ai/failed/
+```
+
+**Betrieb aktuell:**
+
+```text
+compose.yaml
+    `-- Service: moondream
+            |-- restart: unless-stopped
+            |-- Healthcheck ueber /app/status/heartbeat.json
+            |-- Heartbeat-Datei im Host:
+            |   `-- general_ordner/status/moondream/heartbeat.json
+            |-- gepinnte Revision ueber MOONDREAM_REVISION
+            |-- HuggingFace-Cache ueber moondream-hf-cache
+            |-- erster Start kann laenger in startup bleiben
+            `-- Fehlerfaelle:
+                |-- Bild nach general_ordner/moondream_ai/failed/
+                `-- batch123_faceN_error.yaml daneben
 ```
 
 ### 4.4 Ollama-Worker
@@ -319,6 +384,33 @@ workers/ollama_worker.py
 process_file_passthrough()
     `-- schreibt final/batch123_faceN_moondream.yaml
 ```
+
+### 4.5 Heartbeat, Healthcheck und Watchdog
+
+Die drei Docker-Worker besitzen jetzt zusaetzlich einen Langlauf-Schutz:
+
+```text
+Jeder Docker-Worker
+    |-- schreibt /app/status/heartbeat.json
+    |   |-- startup
+    |   |-- ready
+    |   |-- idle
+    |   |-- processing
+    |   `-- error
+    |
+    |-- Docker Healthcheck liest heartbeat.json
+    |   `-- Docker Desktop / docker compose ps zeigt healthy / unhealthy
+    |
+    `-- interner Watchdog
+            |-- face-yolo: processing-Timeout ueber Environment
+            |-- deepface: processing-Timeout ueber Environment
+            `-- moondream: processing-Timeout ueber Environment
+```
+
+Wichtig:
+
+* `unhealthy` dient nur der Sichtbarkeit.
+* Der eigentliche Neustart erfolgt ueber den Worker selbst (`sys.exit(1)`/`os._exit(1)`) zusammen mit `restart: unless-stopped`.
 
 ---
 
@@ -486,6 +578,21 @@ show_closed_folder()
                     `-- state = IDLE; Kamera sollte bereits vorgewaermt sein
 ```
 
+**Wichtig fuer den naechsten App-Start:**
+
+```text
+naechster Start von main.py
+    `-- Startup-Cleanup leert wieder:
+            |-- final/
+            |-- main_image/
+            |-- sketch/
+            |-- ollama_inbox/
+            |-- deepface_inbox/
+            `-- moondream_inbox/
+```
+
+`failed/` und `status/` werden dabei bewusst **nicht** geleert.
+
 ---
 
 ## Vollstaendiger Kreislauf
@@ -511,14 +618,20 @@ close_folder()
 |---|---|
 | `config.yaml` | Zentrale Konfiguration |
 | `path_service.py` | Zentrale Pfadauflosung |
-| `General ordner/main_image/face_trigger.jpg` | Kamera-Foto als Eingang fuer Face-YOLO |
-| `General ordner/final/faces_log.yaml` | Aktueller `batch_id`, `face_count` und weitere Batch-Metadaten |
-| `General ordner/final/batch123_face1_deepface.yaml` | Ergebnis von DeepFace |
-| `General ordner/ollama_ai/ollama_inbox/batch123_face1_ollama.yaml` | Moondream-Zwischenergebnis fuer Ollama |
-| `General ordner/final/batch123_face1_ollama.yaml` | Finales Ollama-Ergebnis |
-| `General ordner/final/batch123_face1_moondream.yaml` | Fallback-Ausgabe, wenn Ollama deaktiviert ist |
-| `General ordner/sketch/batch123_face1.png` | Von Face-YOLO erzeugter GUI-Crop |
-| `General ordner/debug_body/` | Debug-Ausgaben fuer Body-/Segmentation-Pfade |
+| `general_ordner/main_image/face_trigger.jpg` | Kamera-Foto als Eingang fuer Face-YOLO |
+| `general_ordner/final/faces_log.yaml` | Aktueller `batch_id`, `face_count` und weitere Batch-Metadaten |
+| `general_ordner/final/batch123_face1_deepface.yaml` | Ergebnis von DeepFace |
+| `general_ordner/ollama_ai/ollama_inbox/batch123_face1_ollama.yaml` | Moondream-Zwischenergebnis fuer Ollama |
+| `general_ordner/final/batch123_face1_ollama.yaml` | Finales Ollama-Ergebnis |
+| `general_ordner/final/batch123_face1_moondream.yaml` | Fallback-Ausgabe, wenn Ollama deaktiviert ist |
+| `general_ordner/sketch/batch123_face1.png` | Von Face-YOLO erzeugter GUI-Crop |
+| `general_ordner/debug_body/` | Debug-Ausgaben fuer Body-/Segmentation-Pfade |
+| `general_ordner/docker-compose-deepface/failed/` | Fehlgeschlagene DeepFace-Eingaben plus `*_error.yaml` |
+| `general_ordner/moondream_ai/failed/` | Fehlgeschlagene Moondream-Eingaben plus `*_error.yaml` |
+| `general_ordner/status/face-yolo/heartbeat.json` | Laufstatus von Face-YOLO |
+| `general_ordner/status/deepface/heartbeat.json` | Laufstatus von DeepFace |
+| `general_ordner/status/moondream/heartbeat.json` | Laufstatus von Moondream |
+| `compose.yaml` | Zentrale Docker-Compose fuer `face-yolo`, `deepface`, `moondream` |
 | `./pool/` | Vorbefuellte Pool-Personen |
 | `translation_cache.yaml` | Lokaler Uebersetzungs-Cache |
 
@@ -532,9 +645,9 @@ close_folder()
 | `YOLOWorker` | QThread | Signale: `frame_ready`, `photo_done`, `person_presence_changed`; Methoden: `start_capture_mode()`, `start_presence_monitoring()`, `request_camera_prewarm()` |
 | `PipelineWorker` | QThread | Signal: `result_ready` -> `handle_pipeline_result` |
 | `ollama_worker.py` | Subprozess | Liest `ollama_inbox/`, schreibt `final/` |
-| Face-YOLO-Container | Docker | Liest `main_image/`, schreibt `sketch/`, `deepface_inbox/`, `moondream_inbox/`, `final/faces_log.yaml`, `debug_body/` |
-| Moondream-Container | Docker | Liest `moondream_inbox/`, schreibt `ollama_inbox/` |
-| DeepFace-Container | Docker | Liest `deepface_inbox/`, schreibt `final/` |
+| Face-YOLO-Container | Docker | Liest `main_image/`, schreibt `sketch/`, `deepface_inbox/`, `moondream_inbox/`, `final/faces_log.yaml`, `debug_body/`, `status/face-yolo/heartbeat.json` |
+| Moondream-Container | Docker | Liest `moondream_inbox/`, schreibt `ollama_inbox/`, `moondream_ai/failed/`, `status/moondream/heartbeat.json` |
+| DeepFace-Container | Docker | Liest `deepface_inbox/`, schreibt `final/`, `docker-compose-deepface/failed/`, `status/deepface/heartbeat.json` |
 
 Alle GUI-Updates laufen ueber Qt-Queued-Connections bzw. Qt-Signale.
 
@@ -542,7 +655,7 @@ Alle GUI-Updates laufen ueber Qt-Queued-Connections bzw. Qt-Signale.
 
 ## Ordner-Pfade konfigurieren
 
-Standard: `General ordner/`
+Standard: `general_ordner/`
 
 ```yaml
 paths:

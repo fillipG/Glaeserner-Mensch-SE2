@@ -1,22 +1,26 @@
 """
-Face Detection und Hintergrund-Entfernung mit YOLO
+Face Detection und Crop-Verteilung mit YOLO
 
 Erkennt Gesichter in Eingabebildern mittels YOLOv8n-face, entfernt den Hintergrund
-und verteilt die extrahierten Gesichter an spezialisierte Inbox-Ordner
-fuer Deepface- und Moondream-Analyse.
+fuer GUI-/DeepFace-Crops und verteilt die erzeugten Bildausschnitte an die
+nachgelagerten Inbox-Ordner.
 
 Zustaendigkeiten:
 - Ueberwacht Input-Verzeichnis dauerhaft auf neue Bilder
 - Fuehrt Bildvorverarbeitung durch (Aufhellung, CLAHE-Kontrast, Schaerfung)
 - Fuehrt YOLO-Gesichtserkennung mit konfigurierbarer Konfidenz durch
 - Entfernt Hintergruende mit rembg
-- Verteilt Gesichter an sketch/, deepface_inbox/, moondream_inbox/
+- Verteilt Gesichter an sketch/ und deepface_inbox/
+- Erzeugt Moondream-Crops je nach `moondream_crop_mode` (`face`, `body`, `body_seg`, `shadow`)
 - Speichert Debug-Informationen bei 0-Gesichter-Ergebnissen
 """
 
 import os
 import time
+import json
+import threading
 from fnmatch import fnmatch
+from datetime import datetime, timezone
 
 import cv2
 import numpy as np
@@ -34,6 +38,8 @@ MOONDREAM_INBOX = "moondream_inbox"
 CONFIG_PATH = "config.yaml"
 DEBUG_DIR = "debug_face_yolo"
 DEBUG_BODY_DIR = "debug_body"
+STATUS_DIR = "/app/status"
+HEARTBEAT_PATH = os.path.join(STATUS_DIR, "heartbeat.json")
 FACE_YOLO_WEIGHTS = "yolov8n-face.pt"
 BODY_YOLO_WEIGHTS = "/app/yolov8n.pt"
 SEG_YOLO_WEIGHTS = "/app/yolov8n-seg.pt"
@@ -47,6 +53,7 @@ DEFAULT_BODY_PADDING_RATIO = 0.12
 DEFAULT_BODY_FALLBACK_TO_FACE = True
 DEFAULT_BODY_MATCHING_REQUIRED = False
 DEFAULT_DEBUG_MATCHING = True
+PROCESSING_TIMEOUT_SECONDS = float(os.environ.get("FACE_YOLO_PROCESSING_TIMEOUT_SECONDS", "120"))
 
 
 def load_runtime_config():
@@ -128,9 +135,48 @@ def cleanup_previous_batch():
     moondream_inbox/ und final/, damit kein Lauf mit alten Dateien kollidiert.
     """
     targets = {
-        SKETCH_DIR: ["face*.png", "face*.jpg", "face*.jpeg", "batch*_face*.png", "batch*_face*.jpg", "batch*_face*.jpeg"],
-        DEEPFACE_INBOX: ["face*.png", "face*.jpg", "face*.jpeg", "batch*_face*.png", "batch*_face*.jpg", "batch*_face*.jpeg"],
-        MOONDREAM_INBOX: ["face*.png", "face*.jpg", "face*.jpeg", "batch*_face*.png", "batch*_face*.jpg", "batch*_face*.jpeg"],
+        SKETCH_DIR: [
+            "face*.png",
+            "face*.jpg",
+            "face*.jpeg",
+            "face*.png.tmp",
+            "face*.jpg.tmp",
+            "face*.jpeg.tmp",
+            "batch*_face*.png",
+            "batch*_face*.jpg",
+            "batch*_face*.jpeg",
+            "batch*_face*.png.tmp",
+            "batch*_face*.jpg.tmp",
+            "batch*_face*.jpeg.tmp",
+        ],
+        DEEPFACE_INBOX: [
+            "face*.png",
+            "face*.jpg",
+            "face*.jpeg",
+            "face*.png.tmp",
+            "face*.jpg.tmp",
+            "face*.jpeg.tmp",
+            "batch*_face*.png",
+            "batch*_face*.jpg",
+            "batch*_face*.jpeg",
+            "batch*_face*.png.tmp",
+            "batch*_face*.jpg.tmp",
+            "batch*_face*.jpeg.tmp",
+        ],
+        MOONDREAM_INBOX: [
+            "face*.png",
+            "face*.jpg",
+            "face*.jpeg",
+            "face*.png.tmp",
+            "face*.jpg.tmp",
+            "face*.jpeg.tmp",
+            "batch*_face*.png",
+            "batch*_face*.jpg",
+            "batch*_face*.jpeg",
+            "batch*_face*.png.tmp",
+            "batch*_face*.jpg.tmp",
+            "batch*_face*.jpeg.tmp",
+        ],
         "final": ["face*_*.yaml", "batch*_face*_*.yaml", "faces_log.yaml"],
         DEBUG_BODY_DIR: [
             "face*_body.png",
@@ -413,14 +459,28 @@ def remove_background_from_crop(crop_array, session):
 
 def save_image(image_obj, output_path):
     """
-    Speichert ein PIL- oder OpenCV-Bild im PNG-Zielformat.
+    Speichert ein PIL- oder OpenCV-Bild atomar im Zielformat (PNG, JPEG, WEBP).
     """
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    _, ext = os.path.splitext(output_path)
+    ext = ext.lower()
+    pil_format = {
+        ".png": "PNG",
+        ".jpg": "JPEG",
+        ".jpeg": "JPEG",
+        ".webp": "WEBP",
+    }.get(ext)
+    if pil_format is None:
+        raise ValueError(f"Nicht unterstuetztes Bildformat fuer save_image(): {output_path}")
+
+    tmp_path = output_path + ".tmp"
     if isinstance(image_obj, Image.Image):
-        image_obj.save(output_path)
+        image_obj.save(tmp_path, format=pil_format)
+        os.replace(tmp_path, output_path)
         return
     image_rgb = cv2.cvtColor(image_obj, cv2.COLOR_BGR2RGB)
-    Image.fromarray(image_rgb).save(output_path)
+    Image.fromarray(image_rgb).save(tmp_path, format=pil_format)
+    os.replace(tmp_path, output_path)
 
 
 def is_valid_body_crop(crop_array):
@@ -501,6 +561,7 @@ def build_seg_crop(
     Schneidet die Person pixelgenau mit yolov8n-seg.pt aus.
     Hintergrund wird weiss gesetzt, damit Moondream moeglichst wenig Stoerpixel sieht.
     """
+    write_heartbeat("processing")
     if seg_model is None:
         if fallback_to_face:
             return crop_with_padding(image, face_box), "face_fallback_no_seg_model"
@@ -640,8 +701,61 @@ def build_moondream_crop(
     match["moondream_source"] = "none"
     return None, "none"
 
+
+_heartbeat_lock = threading.Lock()
+_heartbeat_state = "startup"
+_heartbeat_timestamp = 0.0
+_heartbeat_monitor_enabled = False
+
+
+def write_heartbeat(state):
+    """Schreibt den aktuellen Worker-Status atomar nach /app/status."""
+    global _heartbeat_state, _heartbeat_timestamp
+    payload = {
+        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+        "state": state,
+        "pid": os.getpid(),
+    }
+    os.makedirs(STATUS_DIR, exist_ok=True)
+    temp_target = HEARTBEAT_PATH + ".tmp"
+    with _heartbeat_lock:
+        with open(temp_target, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle)
+        os.replace(temp_target, HEARTBEAT_PATH)
+        _heartbeat_state = state
+        _heartbeat_timestamp = time.time()
+
+
+def enable_runtime_monitor():
+    global _heartbeat_monitor_enabled
+    with _heartbeat_lock:
+        _heartbeat_monitor_enabled = True
+
+
+def heartbeat_watchdog():
+    """Beendet den Worker, wenn ein Batch zu lange im processing-Zustand haengt."""
+    while True:
+        time.sleep(5)
+        with _heartbeat_lock:
+            monitor_enabled = _heartbeat_monitor_enabled
+            state = _heartbeat_state
+            heartbeat_age = time.time() - _heartbeat_timestamp if _heartbeat_timestamp else 0.0
+
+        if monitor_enabled and state == "processing" and heartbeat_age > PROCESSING_TIMEOUT_SECONDS:
+            try:
+                write_heartbeat("error")
+            except Exception:
+                pass
+            print(
+                f"Face-YOLO Heartbeat-Timeout: processing seit {heartbeat_age:.1f}s "
+                f"(Limit {PROCESSING_TIMEOUT_SECONDS:.1f}s)."
+            )
+            os._exit(1)
+
 # ========== INITIALISIERUNG ==========
 # Laedt YOLO-Modelle einmalig vor Hauptschleife
+write_heartbeat("startup")
+threading.Thread(target=heartbeat_watchdog, daemon=True).start()
 device = "cuda"
 face_model = YOLO(FACE_YOLO_WEIGHTS)
 face_model.to(device)
@@ -668,6 +782,8 @@ else:
 rembg_session = new_session("u2net")
 
 last_runtime = {}
+enable_runtime_monitor()
+write_heartbeat("ready")
 
 # ========== HAUPTSCHLEIFE ==========
 # Ueberwacht INPUT_DIR dauerhaft auf neue Bilder
@@ -679,6 +795,7 @@ while True:
     )
 
     if image_files:
+        write_heartbeat("processing")
         image_name = image_files[0]
         image_path = os.path.join(INPUT_DIR, image_name)
         batch_id = build_batch_id()
@@ -688,7 +805,9 @@ while True:
 
         image = cv2.imread(image_path)
         if image is None:
+            write_heartbeat("error")
             print(f"Bild konnte nicht geladen werden: {image_path}")
+            write_heartbeat("idle")
             time.sleep(0.5)
             continue
 
@@ -766,12 +885,14 @@ while True:
                 continue
 
             # --- GESICHT AN INBOXEN VERTEILEN ---
+            write_heartbeat("processing")
             face_no_bg = remove_background_from_crop(face_crop, rembg_session)
             # Speichert fuer GUI-Skizze.
             save_image(face_no_bg, os.path.join(SKETCH_DIR, f"{face_id}.png"))
             # Speichert fuer Deepface-Analyse (wird nach Verarbeitung geloescht).
             save_image(face_no_bg, os.path.join(DEEPFACE_INBOX, f"{face_id}.png"))
 
+            write_heartbeat("processing")
             moondream_crop, moondream_source = build_moondream_crop(
                 image,
                 match,
@@ -810,6 +931,7 @@ while True:
                 )
                 if body_crop is not None:
                     save_image(body_crop, os.path.join(DEBUG_BODY_DIR, f"{face_id}_body.png"))
+                write_heartbeat("processing")
                 seg_debug_crop, seg_debug_source = build_seg_crop(
                     image,
                     match["face_box"],
@@ -845,7 +967,11 @@ while True:
             os.remove(image_path)
             print(f"Fertig! Originalbild {image_name} geloescht. Warte auf Analyse...")
         except Exception as exc:
+            write_heartbeat("error")
             print(f"Fehler beim Loeschen des Originalbilds: {exc}")
+        write_heartbeat("idle")
+    else:
+        write_heartbeat("idle")
 
     # Wartet kurz vor naechstem Scan-Durchlauf.
     time.sleep(0.5)

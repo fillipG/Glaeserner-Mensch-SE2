@@ -1,6 +1,6 @@
 language: de
 developer_mode: false
-photo_delay: 6
+photo_delay: 4
 reset_countdown_seconds: 3
 close_on_no_person_enabled: true
 close_on_no_person_seconds: 10
@@ -17,8 +17,8 @@ fullscreen: true
 face_yolo:
   confidence: 0.5
   max_faces: 4
-  moondream_crop_mode: body_seg
-  body_confidence: 0.43
+  moondream_crop_mode: face
+  body_confidence: 0.4
   body_padding_ratio: 0.12
   body_fallback_to_face: true
   body_matching_required: false
@@ -29,18 +29,18 @@ pool:
   max_extra_persons: 3
   cooldown_batches: 3
 paths:
-  final_dir: General ordner/final
-  ollama_inbox: General ordner/ollama_ai/ollama_inbox
-  moondream_inbox: General ordner/moondream_ai/moondream_inbox
-  deepface_inbox: General ordner/docker-compose-deepface/deepface_inbox
-  main_image: General ordner/main_image
-  sketch_dir: General ordner/sketch
+  final_dir: general_ordner/final
+  ollama_inbox: general_ordner/ollama_ai/ollama_inbox
+  moondream_inbox: general_ordner/moondream_ai/moondream_inbox
+  deepface_inbox: general_ordner/docker-compose-deepface/deepface_inbox
+  main_image: general_ordner/main_image
+  sketch_dir: general_ordner/sketch
 pipeline:
 - id: moondream
   name: Visual Description (VLM)
   enabled: true
   final_output: false
-  watch_dir: ./General ordner/ollama_ai/ollama_inbox
+  watch_dir: ./general_ordner/ollama_ai/ollama_inbox
   file_ext: .yaml
   show_preview: true
   prompt: Describe this person in 4 sentences as if writing a surveillance report.
@@ -50,7 +50,7 @@ pipeline:
   name: Kriminalgeschichte (Ollama)
   enabled: true
   final_output: true
-  watch_dir: ./General ordner/final
+  watch_dir: ./general_ordner/final
   file_ext: .yaml
   prompt: 'Write a criminal report about a fictional person.
 
@@ -72,14 +72,14 @@ pipeline:
   name: Emotionserkennung
   enabled: true
   final_output: true
-  watch_dir: ./General ordner/final
+  watch_dir: ./general_ordner/final
   file_ext: .yaml
   use_retinaface: true
 - id: fer
   name: Emotionserkennung (FER)
   enabled: false
   final_output: true
-  watch_dir: ./General ordner/final
+  watch_dir: ./general_ordner/final
   file_ext: .yaml
 llm_model: qwen2.5:3b
 pipeline_timeout_seconds: 1000

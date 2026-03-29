@@ -1,6 +1,0 @@
-pipeline:
-  - id: "deepface"
-    enabled: true
-    Deepface_emotion: true
-    Deepface_alter: true
-    Deepface_geschlecht: true
