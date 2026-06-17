@@ -125,6 +125,10 @@ def run_app():
     # Sauberes Herunterfahren der Threads bei Programmende
     pipeline_thread.requestInterruption()
     yolo_thread.requestInterruption()
+    if not pipeline_thread.wait(3000):
+        print("Pipeline thread did not stop within 3 seconds.")
+    if not yolo_thread.wait(3000):
+        print("YOLO thread did not stop within 3 seconds.")
     worker_manager.stop_workers()
     sys.exit(exit_code)
 

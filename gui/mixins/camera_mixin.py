@@ -33,6 +33,19 @@ from PyQt6.QtGui import QPixmap, QImage, QColor
 class CameraMixin:
     """Mixin: Kamera-Preview und Gesichtserkennung."""
 
+    def _frame_to_preview_pixmap(self, frame):
+        """Konvertiert ein OpenCV-Bild in die Pixmap fuer die Kameravorschau."""
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        h, w, ch = rgb.shape
+        q_img = QImage(rgb.data, w, h, ch * w, QImage.Format.Format_RGB888).copy()
+        target_w = int(getattr(self, "_cam_display_w", w))
+        target_h = int(getattr(self, "_cam_display_h", h))
+        return QPixmap.fromImage(q_img).scaled(
+            target_w, target_h,
+            Qt.AspectRatioMode.IgnoreAspectRatio,
+            Qt.TransformationMode.FastTransformation,
+        )
+
     def _freeze_camera_preview(self):
         """
         Friert das Live-Kamerabild ein.
@@ -118,6 +131,9 @@ class CameraMixin:
         if self.camera_pixmap_item is None:
             return
         try:
+            if frame is None:
+                return
+
             display_frame = frame
 
             if self._face_cascade is not None and not self._face_cascade.empty():
@@ -191,14 +207,7 @@ class CameraMixin:
                         )
 
             # BGR → RGB konvertieren und als Qt-Pixmap in die Szene schreiben
-            rgb = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
-            h, w, ch = rgb.shape
-            q_img = QImage(rgb.data, w, h, ch * w, QImage.Format.Format_RGB888).copy()
-            pixmap = QPixmap.fromImage(q_img).scaled(
-                self._cam_display_w, self._cam_display_h,
-                Qt.AspectRatioMode.IgnoreAspectRatio,
-                Qt.TransformationMode.FastTransformation,
-            )
+            pixmap = self._frame_to_preview_pixmap(display_frame)
             self._last_camera_preview_pixmap = pixmap
             self.camera_pixmap_item.setPixmap(pixmap)
 

@@ -19,6 +19,7 @@ AUTOREN: Fillip Giffhorn, Florian Hoeft
 
 import copy
 import os
+import tempfile
 import yaml
 from constants import PipelineStage
 
@@ -64,8 +65,30 @@ class ConfigService:
         Speichert die Konfiguration als YAML-Datei.
         :param config: Zu speicherndes Konfigurations-Dictionary.
         """
-        with open(self.path, "w", encoding="utf-8") as f:
-            yaml.safe_dump(config, f, sort_keys=False, allow_unicode=True)
+        target_path = os.path.abspath(self.path)
+        target_dir = os.path.dirname(target_path) or "."
+        tmp_path = None
+
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=target_dir,
+                delete=False,
+                suffix=".tmp",
+            ) as handle:
+                yaml.safe_dump(config, handle, sort_keys=False, allow_unicode=True)
+                handle.flush()
+                os.fsync(handle.fileno())
+                tmp_path = handle.name
+            os.replace(tmp_path, target_path)
+        except Exception:
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+            raise
 
     def get_default_config(self):
         """
@@ -101,6 +124,7 @@ class ConfigService:
             "camera": {
                 "width": 1280,
                 "height": 720,
+                "keep_warm": True,
             },
             "sounds": {
                 "enabled": True,

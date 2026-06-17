@@ -36,6 +36,12 @@ DEFAULT_MODEL_REVISION = "6b714b26eea5cbd9f31e4edb2541c170afa935ba"
 FAILED_RETENTION_DAYS = 14
 FAILED_RETENTION_INTERVAL_SECONDS = 3600
 PROCESSING_TIMEOUT_SECONDS = float(os.environ.get("MOONDREAM_PROCESSING_TIMEOUT_SECONDS", "900"))
+CUDA_FALLBACK_ERROR_MARKERS = (
+    "no kernel image is available",
+    "cuda error",
+    "device-side assert",
+    "no compatible kernel",
+)
 
 
 def load_moondream_config():
@@ -57,29 +63,53 @@ def load_moondream_config():
     }
 
 
-def load_model():
+def load_model(preferred_device=None):
     """Laedt das gepinnte Moondream-Modell oder beendet den Worker sauber."""
     model_id = os.environ.get("MOONDREAM_MODEL_ID", DEFAULT_MODEL_ID).strip() or DEFAULT_MODEL_ID
     model_revision = (
         os.environ.get("MOONDREAM_REVISION", DEFAULT_MODEL_REVISION).strip()
         or DEFAULT_MODEL_REVISION
     )
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
+    if preferred_device:
+        device = preferred_device
+    else:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+    dtype = torch.bfloat16 if device == "cuda" else torch.float32
 
     print(f"--- Lade Moondream Modell... ({model_id}@{model_revision}) ---")
     print(f"--- Device: {device} | dtype: {dtype} ---")
     try:
-        return AutoModelForCausalLM.from_pretrained(
+        model = AutoModelForCausalLM.from_pretrained(
             model_id,
             revision=model_revision,
             trust_remote_code=True,
             dtype=dtype,
             device_map=device,
         )
+        return model, device
     except Exception as exc:
         print(f"--- Moondream Modell konnte nicht geladen werden: {exc} ---")
         raise SystemExit(1)
+
+
+def should_fallback_to_cpu(exc):
+    message = str(exc).lower()
+    return any(marker in message for marker in CUDA_FALLBACK_ERROR_MARKERS)
+
+
+def run_query(active_model, image, prompt):
+    response = active_model.query(image, prompt)
+    return response["answer"]
+
+
+def reload_model_on_cpu():
+    if torch.cuda.is_available():
+        try:
+            torch.cuda.empty_cache()
+        except Exception:
+            pass
+    print("--- Wechsle auf CPU-Fallback fuer Moondream ---")
+    return load_model(preferred_device="cpu")
 
 
 def prune_failed_dir():
@@ -177,7 +207,7 @@ def heartbeat_watchdog():
 
 write_heartbeat("startup")
 threading.Thread(target=heartbeat_watchdog, daemon=True).start()
-model = load_model()
+model, active_device = load_model()
 last_used_prompt = ""
 last_retention_run = 0.0
 os.makedirs(FAILED_DIR, exist_ok=True)
@@ -228,8 +258,17 @@ while True:
         try:
             write_heartbeat("processing")
             print(f"Analysiere {filename}...")
+            started_at = time.perf_counter()
             image = Image.open(img_path).convert("RGB")
-            answer = model.query(image, current_prompt)["answer"]
+            try:
+                answer = run_query(model, image, current_prompt)
+            except Exception as exc:
+                if active_device == "cuda" and should_fallback_to_cpu(exc):
+                    print(f"Moondream CUDA-Fehler erkannt, wiederhole auf CPU: {exc}")
+                    model, active_device = reload_model_on_cpu()
+                    answer = run_query(model, image, current_prompt)
+                else:
+                    raise
             output_data = {
                 "moondream_prompt": current_prompt,
                 "moondream_description": answer.strip(),
@@ -247,7 +286,8 @@ while True:
                 handle.flush()
                 os.fsync(handle.fileno())
 
-            print(f"Analyse fertig: {yaml_filename} -> Weiter an OLLAMA")
+            elapsed_s = time.perf_counter() - started_at
+            print(f"Analyse fertig: {yaml_filename} -> Weiter an OLLAMA | time={elapsed_s:.3f}s | device={active_device}")
             if os.path.exists(img_path):
                 os.remove(img_path)
             write_heartbeat("idle")

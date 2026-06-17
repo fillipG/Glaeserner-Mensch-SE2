@@ -60,6 +60,7 @@ class YOLOWorker(QThread):
         self._startup_error_message = None
         self._camera_prewarm_requested = False
         self._keep_camera_open_until_idle = False
+        self._keep_camera_warm = True
 
     def _get_state(self):
         return self._state
@@ -70,6 +71,9 @@ class YOLOWorker(QThread):
     def start_capture_mode(self):
         """Versetzt den Worker zurück in den Suchmodus (z.B. nach einem Reset der GUI)."""
         print("YOLO Worker: IDLE")
+        # Der Rueckweg nach IDLE darf keine alten "keep until idle"-Flags aus
+        # ANALYZING/PREWARM mitschleppen. Eine bereits geoeffnete Kamera bleibt
+        # davon unberuehrt und kann direkt weitergenutzt werden.
         self._camera_prewarm_requested = False
         self._keep_camera_open_until_idle = False
         self._set_state(WorkerState.IDLE)
@@ -81,7 +85,7 @@ class YOLOWorker(QThread):
         aber bereits wieder geöffnet werden.
         """
         print("YOLO Worker: ANALYZING")
-        self._keep_camera_open_until_idle = False
+        self._keep_camera_open_until_idle = bool(self._keep_camera_warm)
         self._set_state(WorkerState.ANALYZING)
 
     def start_presence_monitoring(self):
@@ -90,6 +94,9 @@ class YOLOWorker(QThread):
         Prüft in konfigurierbaren Abständen, ob die Person noch vor dem Gerät steht.
         """
         print("YOLO Worker: PRESENCE_MONITORING")
+        # Presence-Monitoring soll echte Checks ausfuehren und nicht einen
+        # vorigen Handoff-Status aus ANALYZING weitertragen.
+        self._keep_camera_open_until_idle = False
         self._set_state(WorkerState.PRESENCE_MONITORING)
 
     def request_camera_prewarm(self):
@@ -101,6 +108,29 @@ class YOLOWorker(QThread):
         """
         self._camera_prewarm_requested = True
 
+    def _read_prewarm_frame(self, photo_capture, log_open=False, max_reads=8):
+        """
+        Oeffnet die Kamera bei Bedarf und liest mehrere Frames an.
+
+        Der letzte gueltige Frame wird zurueckgegeben, damit die GUI bereits ein
+        frisches Vorschaubild cachen kann, bevor der normale IDLE-Loop startet.
+        """
+        if photo_capture is None:
+            return None
+
+        cap = photo_capture.ensure_camera_open(log_open=log_open)
+        if not cap:
+            return None
+
+        last_frame = None
+        for _ in range(max_reads):
+            ret, frame = cap.read()
+            if ret and frame is not None:
+                last_frame = frame.copy()
+                continue
+            time.sleep(0.03)
+        return last_frame
+
     def _prewarm_camera_if_requested(self, photo_capture):
         """
         Oeffnet die Kamera im Hintergrund und liest mehrere Test-Frames an.
@@ -111,17 +141,8 @@ class YOLOWorker(QThread):
         if not self._camera_prewarm_requested or photo_capture is None:
             return
 
-        cap = photo_capture.ensure_camera_open(log_open=False)
-        if not cap:
-            return
-
-        # Viele Kameratreiber liefern die ersten ein bis zwei Frames noch nicht
-        # stabil. Liest deshalb bis zu drei Frames an, damit das erste echte
-        # Livebild nach dem Schliessen moeglichst sofort sichtbar wird.
-        for _ in range(3):
-            ret, _ = cap.read()
-            if not ret:
-                continue
+        frame = self._read_prewarm_frame(photo_capture, log_open=False, max_reads=8)
+        if frame is not None:
             self._camera_prewarm_requested = False
             self._keep_camera_open_until_idle = True
             return
@@ -178,10 +199,12 @@ class YOLOWorker(QThread):
 
                 photo_delay = int(cfg.get("photo_delay") or 3)
                 language = cfg.get("language", "de")
+                camera_cfg = cfg.get("camera", {}) if isinstance(cfg.get("camera"), dict) else {}
                 self._presence_check_interval_ms = max(
                     1000,
                     int(cfg.get("no_person_check_interval_ms", 2000) or 2000),
                 )
+                self._keep_camera_warm = bool(camera_cfg.get("keep_warm", True))
                 photo_capture.update_runtime_config(photo_delay=photo_delay, language=language)
 
                 state = self._get_state()
@@ -209,7 +232,10 @@ class YOLOWorker(QThread):
                     filename = str(get_paths()["main_image"] / "face_trigger.jpg")
                     cv2.imwrite(filename, captured_frame)
                     print(f"[{time.strftime('%H:%M:%S')}] Bild gespeichert: {filename}")
-                    photo_capture.release_camera()
+                    if self._keep_camera_warm:
+                        self._keep_camera_open_until_idle = True
+                    else:
+                        photo_capture.release_camera()
                     self.start_analyzing_mode()
                     self.photo_done.emit()
                     continue
@@ -217,16 +243,20 @@ class YOLOWorker(QThread):
                 # FALL 2: Wartezustand während der KI-Analyse (Ressourcenschonung)
                 if state == WorkerState.ANALYZING:
                     self._prewarm_camera_if_requested(photo_capture)
-                    if not self._keep_camera_open_until_idle:
+                    if self._keep_camera_warm:
+                        photo_capture.ensure_camera_open(log_open=False)
+                        self._keep_camera_open_until_idle = True
+                    elif not self._keep_camera_open_until_idle:
                         photo_capture.release_camera()
                     time.sleep(0.1)
                     continue
 
                 # FALL 3: Anwesenheits-Prüfung (ist die Person noch da?)
                 if state == WorkerState.PRESENCE_MONITORING:
-                    # Beim Schliessen der Mappe ist schnelles Vorwaermen wichtiger
-                    # als weitere Presence-Checks, weil als naechstes ohnehin IDLE folgt.
-                    if self._camera_prewarm_requested or self._keep_camera_open_until_idle:
+                    # Ein expliziter Prewarm-Request darf einmalig Vorrang haben.
+                    # Das Flag _keep_camera_open_until_idle selbst darf Presence-
+                    # Checks jedoch nicht blockieren.
+                    if self._camera_prewarm_requested:
                         self._prewarm_camera_if_requested(photo_capture)
                         time.sleep(0.05)
                         continue
@@ -237,7 +267,9 @@ class YOLOWorker(QThread):
                     if is_present is not None:
                         self.person_presence_changed.emit(bool(is_present))
                     self._prewarm_camera_if_requested(photo_capture)
-                    if not self._keep_camera_open_until_idle:
+                    if self._keep_camera_warm:
+                        self._keep_camera_open_until_idle = True
+                    elif not self._keep_camera_open_until_idle:
                         photo_capture.release_camera()
 
                     # Wartezeit zwischen zwei Anwesenheitsprüfungen (aus Config steuerbar)

@@ -9,6 +9,7 @@ animation_speed: 15
 camera:
   width: 1280
   height: 720
+  keep_warm: true
 live_deepface:
   enabled: true
   interval_seconds: 3
@@ -74,7 +75,7 @@ pipeline:
   final_output: true
   watch_dir: ./general_ordner/final
   file_ext: .yaml
-  use_retinaface: true
+  use_retinaface: false
 - id: fer
   name: Emotionserkennung (FER)
   enabled: false
@@ -82,7 +83,7 @@ pipeline:
   watch_dir: ./general_ordner/final
   file_ext: .yaml
 llm_model: qwen2.5:3b
-pipeline_timeout_seconds: 1000
+pipeline_timeout_seconds: 200
 sounds:
   enabled: true
   volume: 0.08

@@ -68,6 +68,16 @@ def _map_gender_to_de(dominant_gender):
     return dominant_gender
 
 
+def analyze_with_backend(img_path, detector_backend):
+    return DeepFace.analyze(
+        img_path=img_path,
+        actions=["age", "gender", "emotion"],
+        enforce_detection=False,
+        detector_backend=detector_backend,
+        silent=True,
+    )
+
+
 def prune_failed_dir():
     """Entfernt alte Fehlerartefakte aus failed/."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=FAILED_RETENTION_DAYS)
@@ -217,13 +227,18 @@ while True:
             print(f"Analysiere {filename}...")
             started_at = time.perf_counter()
 
-            results = DeepFace.analyze(
-                img_path=img_path,
-                actions=["age", "gender", "emotion"],
-                enforce_detection=False,
-                detector_backend=detector_backend,
-                silent=True,
-            )
+            try:
+                results = analyze_with_backend(img_path, detector_backend)
+            except Exception as exc:
+                if detector_backend != "skip":
+                    print(
+                        f"DeepFace Backend '{detector_backend}' fehlgeschlagen, "
+                        f"versuche Fallback 'skip': {exc}"
+                    )
+                    detector_backend = "skip"
+                    results = analyze_with_backend(img_path, detector_backend)
+                else:
+                    raise
             res = results[0] if isinstance(results, list) else results
 
             out = {}
@@ -253,6 +268,7 @@ while True:
                 f"gender={out.get('Geschlecht')} ({gender_confidence}) | "
                 f"age={out.get('Alter')} | "
                 f"confidence={out.get('Confidence')} | "
+                f"backend={detector_backend} | "
                 f"time={elapsed_s:.3f}s"
             )
 

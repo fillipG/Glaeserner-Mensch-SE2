@@ -20,6 +20,7 @@ Benötigte self-Attribute (in ScalingAkteGUI.__init__ gesetzt):
 import os
 import shutil
 import cv2
+from fnmatch import fnmatch
 
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QPixmap, QFont, QImage, QPen, QColor
@@ -52,9 +53,8 @@ class AnimationMixin:
             "empty_result"     – Keine Person erkannt
         :param animated: True = Schließ-Video abspielen, False = sofort schließen.
         """
-        # Kamera frühzeitig im Worker vorwärmen, damit nach der Schließ-Animation
-        # schneller wieder ein Livebild statt eines langen schwarzen Platzhalters erscheint.
-        self.camera_prewarm_requested.emit()
+        # Kein Session-Frame soll nach dem Schliessen weiterverwendet werden.
+        self._last_camera_preview_pixmap = None
 
         # Nur bei bewusstem Nutzer- oder System-Reset werden alte Dateien bereinigt.
         # Bei Fehlern (z.B. pipeline_timeout) ist die Bereinigung ebenfalls erwünscht,
@@ -105,6 +105,20 @@ class AnimationMixin:
                 except Exception as exc:
                     if self.developer_mode:
                         print(f"Close-Cleanup konnte {entry_path} nicht loeschen: {exc}")
+
+        sketch_dir = PATHS["sketch_dir"]
+        sketch_patterns = ("face*.png", "*_face*.png")
+        if os.path.exists(sketch_dir):
+            for entry in os.listdir(sketch_dir):
+                if not any(fnmatch(entry, pattern) for pattern in sketch_patterns):
+                    continue
+                entry_path = os.path.join(sketch_dir, entry)
+                try:
+                    if os.path.isfile(entry_path) or os.path.islink(entry_path):
+                        os.unlink(entry_path)
+                except Exception as exc:
+                    if self.developer_mode:
+                        print(f"Close-Cleanup konnte Sketch {entry_path} nicht loeschen: {exc}")
 
     # =========================================================
     # Geschlossener Ordner
@@ -183,7 +197,7 @@ class AnimationMixin:
         border.setPen(QPen(QColor("#f4e4bc"), 3))
         border.setZValue(9)
 
-        # Schwarzer Platzhalter bis das erste Kamerabild kommt
+        # Schwarzer Platzhalter bis das erste neue Livebild kommt.
         placeholder = QPixmap(self._cam_display_w, self._cam_display_h)
         placeholder.fill(QColor("black"))
         new_item = self.scene.addPixmap(placeholder)
